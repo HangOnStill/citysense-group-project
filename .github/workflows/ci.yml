@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} / ${{ matrix.compiler }} / public
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-22.04, compiler: gcc-13 }
+          - { os: ubuntu-22.04, compiler: clang-16 }
+          - { os: windows-2022, compiler: msvc-19 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up GCC
+        if: matrix.compiler == 'gcc-13'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++-13
+          echo "CXX=g++-13" >> $GITHUB_ENV
+
+      - name: Set up Clang
+        if: matrix.compiler == 'clang-16'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-16 lld-16
+          echo "CXX=clang++-16" >> $GITHUB_ENV
+
+      - name: Cache CMake deps
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ matrix.compiler }}-${{ hashFiles('CMakeLists.txt', 'src/**', 'tests/**', 'tests_strict/**') }}
+
+      - name: Configure (public tests)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCITYSENSE_WARN_AS_ERR=ON -DCITYSENSE_ENABLE_STRICT_TESTS=OFF
+      - name: Build
+        run: cmake --build build --config Release --parallel 4
+      - name: Test (public)
+        working-directory: build
+        run: ctest --output-on-failure --timeout 90 -L "^((?!strict).)*$"
+
+  autograder-strict:
+    name: ubuntu / clang-16 / strict
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-16 lld-16
+          echo "CXX=clang++-16" >> $GITHUB_ENV
+      - name: Configure (strict)
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCITYSENSE_ENABLE_STRICT_TESTS=ON -DCITYSENSE_WARN_AS_ERR=ON
+      - name: Build (strict)
+        run: cmake --build build --parallel 4
+      - name: Test (strict)
+        working-directory: build
+        run: ctest --output-on-failure --timeout 120 -L strict

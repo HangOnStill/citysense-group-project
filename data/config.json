@@ -1,0 +1,4 @@
+{
+  "inputs": ["data/air.csv"],
+  "window_minutes": 5
+}
