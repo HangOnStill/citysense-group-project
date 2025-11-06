@@ -1,5 +1,8 @@
 CITYSENSE PROJECT ROADMAP
 
+Team members: Seif Al Qutob - 300321304 and Mohamed Reda Jahouni - 300262323
+GitHub repository:  https://github.com/Student-Work-CSI2372/citysense-group-project-group-4
+
 ================================================================================
 WEEK 1 (This week): Setup
 ================================================================================
