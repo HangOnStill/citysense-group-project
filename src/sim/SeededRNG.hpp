@@ -5,14 +5,14 @@
 
 namespace sim{
 
-class RNG{
+class SeededRNG{
     public:
         // Default seed = 12345, can call with a custom seed using: 
         //      sim::SeededRNG rng(my_seed); where my_seed is an int
         // You can then call:
         //      double traffic_speed = rng.uniform(15.0, 35.0); 
         // which will return the same random number deterministically based on seed.
-        explicit RNG(int seed = 12345) : engine_(static_cast<std::uint64_t>(seed)) {}
+        explicit SeededRNG(int seed = 12345) : engine_(static_cast<std::uint64_t>(seed)) {}
 
         //When called with Doubles
         double uniform(double min, double max){
