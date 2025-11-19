@@ -10,6 +10,10 @@ namespace app {
         std::vector<std::string> inputs;
         std::string out_path{ "citysense_report.json" };
 
+        // ingestion knobs
+        std::size_t batch_size{ 1000 };
+        std::size_t reserve_records{ 0 };
+
         // simulation
         std::chrono::system_clock::time_point start_time{};
         std::chrono::system_clock::time_point end_time{};
@@ -24,10 +28,6 @@ namespace app {
         double db_threshold{ 80.0 };
         int noise_count_threshold{ 3 };
         int noise_window_minutes{ 10 };
-
-        // W10: performance knobs
-        std::size_t batch_size{ 1000 };       // default batch size for ReaderCSV / pipeline
-        std::size_t reserve_records{ 0 };     // hint: expected number of records in window
     };
 
 } // namespace app

@@ -4,12 +4,11 @@
 #include <type_traits>
 #include <iterator>
 #include <chrono>
-
 #include "Window.hpp"
-
 
 namespace core {
 
+    // Public summary contract used by tests.
     struct Summary {
         int total_count{ 0 };
         std::unordered_map<int, int> by_zone; // zone_id -> count
@@ -21,80 +20,82 @@ namespace core {
             : window_minutes_(window_minutes) {
         }
 
-        // NEW: allow callers to pre-reserve space for window records.
-        void reserve(std::size_t n) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            window_.records.reserve(n);
-        }
-
+        // Generic consume: works for SensorRecord ranges and also for simple types
+        // (tests call consume(std::vector<int>{...})).
         template <typename Range>
         void consume(const Range& r) {
             using std::begin;
             using std::end;
-            using value_type = std::decay_t<decltype(*begin(r))>;
 
-            std::lock_guard<std::mutex> lock(mutex_);
+            auto it = begin(r);
+            auto it_end = end(r);
+            if (it == it_end) return;
 
-            if constexpr (std::is_same_v<value_type, model::SensorRecord>) {
-                for (const auto& rec : r) {
-                    window_.records.push_back(rec);
-                    summary_.total_count += 1;
-                    summary_.by_zone[rec.zone_id] += 1;
+            std::scoped_lock lock(mutex_);
 
-                    if (!has_latest_ts_ || rec.ts > latest_ts_) {
-                        latest_ts_ = rec.ts;
-                        has_latest_ts_ = true;
-                    }
+            using Value = std::decay_t<decltype(*it)>;
+
+            // Real logic only for SensorRecord ranges
+            if constexpr (std::is_same_v<Value, model::SensorRecord>) {
+                for (auto cur = it; cur != it_end; ++cur) {
+                    window_.records.push_back(*cur);
                 }
-                evict_old();
+
+                // Time-based eviction: keep only records within last window_minutes_
+                if (!window_.records.empty() && window_minutes_ > 0) {
+                    const auto max_ts = window_.records.back().ts;
+                    const auto cutoff =
+                        max_ts - std::chrono::minutes(window_minutes_);
+
+                    auto erase_it = std::remove_if(
+                        window_.records.begin(),
+                        window_.records.end(),
+                        [&](const model::SensorRecord& rec) {
+                            return rec.ts < cutoff;
+                        }
+                    );
+                    window_.records.erase(erase_it, window_.records.end());
+                }
+
+                // Recompute per-zone counts from current window
+                recompute_by_zone_unlocked();
             }
-            else {
-                const auto c = static_cast<int>(std::distance(begin(r), end(r)));
-                summary_.total_count += c;
-            }
+
+            // total_count tracks all ingested elements (any Range value type)
+            const int added =
+                static_cast<int>(std::distance(it, it_end));
+            total_count_ += added;
         }
 
-        // View into current window; intended for single-threaded detector use.
         const Window& current_window_view() const {
+            // NOTE: read-only snapshot; callers should avoid using this
+            // concurrently with writes unless they provide external sync.
             return window_;
         }
 
-        // Snapshot summary (thread-safe copy).
         Summary summary() const {
-            std::lock_guard<std::mutex> lock(mutex_);
-            return summary_;
+            std::scoped_lock lock(mutex_);
+            Summary s;
+            s.total_count = total_count_;
+            s.by_zone = by_zone_;
+            return s;
         }
 
     private:
-        void evict_old() {
-            if (!has_latest_ts_ || window_minutes_ <= 0) return;
-
-            const auto cutoff = latest_ts_ - std::chrono::minutes(window_minutes_);
-
-            // Simple linear eviction from the front.
-            auto it = window_.records.begin();
-            while (it != window_.records.end() && it->ts < cutoff) {
-                // update summary for the evicted record
-                summary_.total_count -= 1;
-                auto z_it = summary_.by_zone.find(it->zone_id);
-                if (z_it != summary_.by_zone.end()) {
-                    z_it->second -= 1;
-                    if (z_it->second <= 0) {
-                        summary_.by_zone.erase(z_it);
-                    }
-                }
-
-                it = window_.records.erase(it);
+        void recompute_by_zone_unlocked() {
+            by_zone_.clear();
+            for (const auto& rec : window_.records) {
+                ++by_zone_[rec.zone_id];
             }
         }
 
-        int window_minutes_;
-        mutable std::mutex mutex_;
         Window window_;
-        Summary summary_;
+        int window_minutes_{ 0 };
 
-        std::chrono::system_clock::time_point latest_ts_{};
-        bool has_latest_ts_{ false };
+        int total_count_{ 0 };                       // all seen elements
+        std::unordered_map<int, int> by_zone_;    // counts in current window
+
+        mutable std::mutex mutex_;
     };
 
 } // namespace core

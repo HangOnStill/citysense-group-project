@@ -1,9 +1,19 @@
+# Build directories
 /build/
-/.vscode/
-/.idea/
-*.user
-*.log
-*.cache
-out/
-build/
+/out/
+/cmake-build-*/
+/CMakeFiles/
+/CMakeCache.txt
+
+# IDE files
 .vs/
+.idea/
+*.code-workspace
+*.user
+*.suo
+*.VC.db
+*.VC.opendb
+
+# OS junk
+.DS_Store
+Thumbs.db

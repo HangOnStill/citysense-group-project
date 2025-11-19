@@ -2,223 +2,277 @@
 #include <string>
 #include <vector>
 #include <fstream>
-#include <sstream>
-#include <string_view>
+#include <unordered_map>
+#include <optional>
 #include <stdexcept>
 #include <algorithm>
 #include <cctype>
-#include <optional>
+#include <chrono>
 
 #include "../model/SensorRecord.hpp"
 
 namespace io {
 
+    // Streaming CSV reader over one or more input files.
     class ReaderCSV {
     public:
         explicit ReaderCSV(std::vector<std::string> inputs)
             : inputs_(std::move(inputs)) {
         }
 
-        // Optional: constructor with a reserve hint
-        ReaderCSV(std::vector<std::string> inputs, std::size_t reserve_hint)
-            : inputs_(std::move(inputs)), reserve_hint_(reserve_hint) {
-        }
-
-        // Optional: setter for reserve hint
-        void set_reserve_hint(std::size_t n) { reserve_hint_ = n; }
-
+        // Returns up to max_rows SensorRecords.
+        // Contract: if no inputs can be opened at all, throws std::runtime_error.
         std::vector<model::SensorRecord> next_batch(std::size_t max_rows = 1000) {
-            if (max_rows == 0) return {};
-
-            ensure_stream();  // may throw if no files can be opened at all
-
             std::vector<model::SensorRecord> batch;
-            std::size_t to_reserve = max_rows;
-            if (reserve_hint_ != 0) {
-                to_reserve = std::min(to_reserve, reserve_hint_);
+            if (max_rows == 0) {
+                return batch;
             }
-            batch.reserve(to_reserve);
 
-            std::string line;
+            for (;;) {
+                // Ensure we have an open data stream; may throw if *no* file
+                // can ever be opened (as per contract).
+                if (!ensure_stream()) {
+                    // All files exhausted; return what we have (possibly empty).
+                    return batch;
+                }
 
-            while (batch.size() < max_rows && has_stream_) {
-                if (!std::getline(current_, line)) {
-                    current_.close();
-                    has_stream_ = false;
-                    header_parsed_ = false;
-                    ++current_index_;
-                    if (!advance_to_next_stream()) {
-                        break;
+                std::string line;
+                while (batch.size() < max_rows && std::getline(current_, line)) {
+                    if (line.empty()) {
+                        continue;
                     }
-                    continue;
+
+                    auto cols = split(line);
+                    if (cols.empty()) {
+                        continue;
+                    }
+
+                    model::SensorRecord rec{};
+                    // CSV does not carry a timestamp in this project;
+                    // default-construct to a well-defined value.
+                    rec.ts = std::chrono::system_clock::time_point{};
+
+                    // sensor_id (string, case-insensitive header)
+                    if (auto s = get_string(cols, "sensor_id")) {
+                        rec.sensor_id = *s;
+                    } else {
+                        rec.sensor_id.clear();
+                    }
+
+                    // zone_id (stable small integer per zone string)
+                    rec.zone_id = get_zone(cols, "zone_id");
+
+                    // family-specific numeric fields (optional)
+                    rec.speed = parse_double(cols, "speed");
+                    rec.flow  = parse_double(cols, "flow");
+                    rec.pm25  = parse_double(cols, "pm25");
+                    rec.pm10  = parse_double(cols, "pm10");
+                    rec.db    = parse_double(cols, "db");
+
+                    batch.push_back(std::move(rec));
                 }
 
-                if (line.empty()) {
-                    continue;
+                // If we produced any rows, or we are on the last file, return.
+                if (!batch.empty() || current_index_ + 1 >= inputs_.size()) {
+                    return batch;
                 }
 
-                auto cells = split_line(line);
-                if (cells.empty()) {
-                    continue;
-                }
-
-                model::SensorRecord rec{};
-                fill_record(cells, rec);
-                batch.push_back(std::move(rec));
+                // Otherwise, this file is exhausted and batch is still empty:
+                // move to the next file and loop again.
+                current_.close();
+                ++current_index_;
             }
-
-            return batch;
         }
 
     private:
         std::vector<std::string> inputs_;
-        std::size_t current_index_{ 0 };
+        std::size_t current_index_{0};
         std::ifstream current_;
-        bool has_stream_{ false };
-        bool header_parsed_{ false };
-        bool any_file_opened_{ false };
-        std::size_t reserve_hint_{ 0 };
+        bool any_file_opened_{false};
 
-        struct Columns {
-            int ts = -1;
-            int sensor_id = -1;
-            int zone_id = -1;
-            int speed = -1;
-            int flow = -1;
-            int pm25 = -1;
-            int pm10 = -1;
-            int db = -1;
-        };
-        Columns cols_{};
+        // Lower-cased column name -> column index
+        std::unordered_map<std::string, std::size_t> header_index_;
 
-        void ensure_stream() {
-            if (!has_stream_) {
-                if (!advance_to_next_stream()) {
-                    if (!any_file_opened_) {
-                        throw std::runtime_error("ReaderCSV: no input files could be opened");
-                    }
-                }
-            }
-        }
+        // Zone string -> stable small int id
+        std::unordered_map<std::string, int> zone_map_;
+        int next_zone_id_{1};
 
-        bool advance_to_next_stream() {
-            std::string header_line;
+        // Open current file (or next) and read header.
+        // Returns true if a stream is open and ready, false if exhausted.
+        // Open current file (or next) and read header.
+// Returns true if a stream is open and ready, false if exhausted.
+        bool ensure_stream() {
+            using std::string;
 
-            while (current_index_ < inputs_.size()) {
+            while (!current_.is_open() && current_index_ < inputs_.size()) {
                 current_.close();
                 current_.clear();
 
-                current_.open(inputs_[current_index_]);
-                if (!current_.is_open()) {
+                const string raw = inputs_[current_index_];
+
+                // Extract just the filename part (naive, but enough here).
+                string filename = raw;
+                auto pos = raw.find_last_of("/\\");
+                if (pos != string::npos) {
+                    filename = raw.substr(pos + 1);
+                }
+
+                // Try a few reasonable candidate paths.
+                std::vector<string> candidates;
+                candidates.push_back(raw);                      // as passed
+                candidates.push_back("../" + raw);              // from build/ up one
+                candidates.push_back("data/" + filename);       // data/filename
+                candidates.push_back("../data/" + filename);    // ../data/filename
+
+                bool opened = false;
+                for (const auto& path : candidates) {
+                    current_.close();
+                    current_.clear();
+                    current_.open(path);
+                    if (current_) {
+                        any_file_opened_ = true;
+                        opened = true;
+                        break;
+                    }
+                }
+
+                if (!opened) {
+                    // None of the candidate paths worked; move to next input.
                     ++current_index_;
                     continue;
                 }
 
-                any_file_opened_ = true;
-
-                if (!std::getline(current_, header_line)) {
+                // We have an open stream now; read header.
+                std::string header;
+                if (!std::getline(current_, header)) {
+                    // Empty file; skip it and try next input.
+                    current_.close();
                     ++current_index_;
                     continue;
                 }
 
-                parse_header(header_line);
-                has_stream_ = true;
-                header_parsed_ = true;
+                parse_header(header);
                 return true;
             }
 
-            has_stream_ = false;
-            return false;
+            if (!any_file_opened_ && !current_.is_open()) {
+                // No file could be opened at all – contract says: throw.
+                throw std::runtime_error("ReaderCSV: could not open any input file");
+            }
+
+            return current_.is_open();
         }
 
-        static std::vector<std::string> split_line(const std::string& line) {
-            std::vector<std::string> cells;
-            std::string cell;
-            std::stringstream ss(line);
 
-            while (std::getline(ss, cell, ',')) {
-                auto l = cell.find_first_not_of(" \t\r\n");
-                auto r = cell.find_last_not_of(" \t\r\n");
-                if (l == std::string::npos) {
-                    cells.emplace_back();
-                }
-                else {
-                    cells.emplace_back(cell.substr(l, r - l + 1));
-                }
+        void parse_header(const std::string& line) {
+            header_index_.clear();
+            auto cols = split(line);
+            for (std::size_t i = 0; i < cols.size(); ++i) {
+                auto name = trim(cols[i]);
+                header_index_[to_lower(name)] = i;
             }
-            return cells;
         }
 
-        static std::string to_lower(const std::string& s) {
-            std::string out;
-            out.reserve(s.size());
-            for (unsigned char ch : s) {
-                out.push_back(static_cast<char>(std::tolower(ch)));
+        // Lowercase helper
+        static std::string to_lower(std::string s) {
+            std::transform(
+                s.begin(), s.end(), s.begin(),
+                [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+            return s;
+        }
+
+        // Trim leading + trailing whitespace and CR.
+        static std::string trim(std::string s) {
+            // leading
+            std::size_t start = 0;
+            while (start < s.size() &&
+                   (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
+                ++start;
             }
+            // trailing
+            std::size_t end = s.size();
+            while (end > start &&
+                   (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
+                --end;
+            }
+            return s.substr(start, end - start);
+        }
+
+        // Very small CSV splitter (no quoting support; OK for provided data).
+        std::vector<std::string> split(const std::string& line) const {
+            std::vector<std::string> out;
+            std::string cur;
+            for (char ch : line) {
+                if (ch == ',') {
+                    out.push_back(trim(cur));
+                    cur.clear();
+                } else {
+                    cur.push_back(ch);
+                }
+            }
+            out.push_back(trim(cur));
             return out;
         }
 
-        void parse_header(const std::string& header) {
-            cols_ = Columns{};
-            auto names = split_line(header);
-            for (std::size_t i = 0; i < names.size(); ++i) {
-                const auto name_lc = to_lower(names[i]);
-                if (name_lc == "timestamp") {
-                    cols_.ts = static_cast<int>(i);
-                }
-                else if (name_lc == "sensor_id") {
-                    cols_.sensor_id = static_cast<int>(i);
-                }
-                else if (name_lc == "zone_id") {
-                    cols_.zone_id = static_cast<int>(i);
-                }
-                else if (name_lc == "speed" || name_lc == "speed_kmh") {
-                    cols_.speed = static_cast<int>(i);
-                }
-                else if (name_lc == "flow" || name_lc == "flow_per_min") {
-                    cols_.flow = static_cast<int>(i);
-                }
-                else if (name_lc == "pm25") {
-                    cols_.pm25 = static_cast<int>(i);
-                }
-                else if (name_lc == "pm10") {
-                    cols_.pm10 = static_cast<int>(i);
-                }
-                else if (name_lc == "db" || name_lc == "dba") {
-                    cols_.db = static_cast<int>(i);
-                }
+        int zone_id_for(const std::string& zone) {
+            auto it = zone_map_.find(zone);
+            if (it != zone_map_.end()) {
+                return it->second;
             }
+            int id = next_zone_id_++;
+            zone_map_[zone] = id;
+            return id;
         }
 
-        static bool in_bounds(int idx, const std::vector<std::string>& cells) {
-            return idx >= 0 && static_cast<std::size_t>(idx) < cells.size();
+        // Helper: fetch a string column by (case-insensitive) name.
+        std::optional<std::string> get_string(
+            const std::vector<std::string>& cols,
+            const std::string& name) const
+        {
+            auto key = to_lower(name);
+            auto it  = header_index_.find(key);
+            if (it == header_index_.end()) return std::nullopt;
+            std::size_t idx = it->second;
+            if (idx >= cols.size()) return std::nullopt;
+
+            auto val = trim(cols[idx]);
+            if (val.empty()) return std::nullopt;
+            return val;
         }
 
-        static std::optional<double> parse_double_safe(const std::vector<std::string>& cells, int idx) {
-            if (!in_bounds(idx, cells)) return std::nullopt;
-            const auto& s = cells[static_cast<std::size_t>(idx)];
+        // Helper: fetch / map zone_id; returns 0 if column missing or empty.
+        int get_zone(const std::vector<std::string>& cols,
+                     const std::string& name)
+        {
+            auto opt = get_string(cols, name);
+            if (!opt) {
+                return 0;
+            }
+            return zone_id_for(*opt);
+        }
+
+        std::optional<double> parse_double(
+            const std::vector<std::string>& cols,
+            const std::string& name) const
+        {
+            auto key = to_lower(name);
+            auto it  = header_index_.find(key);
+            if (it == header_index_.end()) return std::nullopt;
+
+            std::size_t idx = it->second;
+            if (idx >= cols.size()) return std::nullopt;
+
+            auto s = trim(cols[idx]);
             if (s.empty()) return std::nullopt;
+
             try {
-                return std::stod(s);
-            }
-            catch (...) {
+                std::size_t pos = 0;
+                double v = std::stod(s, &pos);
+                (void)pos;
+                return v;
+            } catch (...) {
                 return std::nullopt;
             }
-        }
-
-        void fill_record(const std::vector<std::string>& cells, model::SensorRecord& r) const {
-            if (in_bounds(cols_.sensor_id, cells)) {
-                r.sensor_id = cells[static_cast<std::size_t>(cols_.sensor_id)];
-            }
-
-            // For now, keep zone_id as simple int; later we can map zones.
-            r.zone_id = 0;
-
-            r.speed = parse_double_safe(cells, cols_.speed);
-            r.flow = parse_double_safe(cells, cols_.flow);
-            r.pm25 = parse_double_safe(cells, cols_.pm25);
-            r.pm10 = parse_double_safe(cells, cols_.pm10);
-            r.db = parse_double_safe(cells, cols_.db);
         }
     };
 

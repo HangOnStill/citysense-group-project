@@ -4,12 +4,12 @@
 #include "core/Aggregator.hpp"
 #include "model/SensorRecord.hpp"
 
-using clock_t = std::chrono::system_clock;
+using citysense_clock = std::chrono::system_clock;
 
 static model::SensorRecord mk(int zone, int minutes_from_epoch) {
     model::SensorRecord r;
     r.zone_id = zone;
-    r.ts = clock_t::time_point(std::chrono::minutes(minutes_from_epoch));
+    r.ts = citysense_clock::time_point(std::chrono::minutes(minutes_from_epoch));
     return r;
 }
 
