@@ -4,3 +4,6 @@
 *.user
 *.log
 *.cache
+out/
+build/
+.vs/
