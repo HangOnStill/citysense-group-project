@@ -7,10 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(CITYSENSE_WARN_AS_ERR "Treat warnings as errors for project sources" ON)
 option(CITYSENSE_ENABLE_STRICT_TESTS "Build and run strict (grading) tests" ON)
 
-add_library(citysense_lib INTERFACE)
-target_include_directories(citysense_lib INTERFACE
+add_library(citysense_lib 
+    src/io/ReaderCSV.cpp
+    src/io/ReaderJSON.cpp
+)
+target_include_directories(citysense_lib PUBLIC
     ${PROJECT_SOURCE_DIR}/src
 )
+target_link_libraries(citysense_lib PUBLIC nlohmann_json::nlohmann_json)
 
 function(apply_warnings target)
   if (MSVC)
@@ -31,8 +35,21 @@ add_executable(citysense src/app/main.cpp)
 target_link_libraries(citysense PRIVATE citysense_lib)
 apply_warnings(citysense)
 
+# Manual test executable for debugging
+add_executable(manual_test manual_test.cpp)
+target_link_libraries(manual_test PRIVATE citysense_lib)
+
+# Processor test executable
+add_executable(test_processor test_processor.cpp src/core/Processor.cpp)
+target_link_libraries(test_processor PRIVATE citysense_lib)
+
 # ---- Tests (Catch2)
 include(FetchContent)
+
+# Fetch nlohmann JSON library
+FetchContent_Declare(json URL https://github.com/nlohmann/json/releases/download/v3.11.3/json.tar.xz)
+FetchContent_MakeAvailable(json)
+
 FetchContent_Declare(Catch2 URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.6.0.zip)
 FetchContent_MakeAvailable(Catch2)
 
