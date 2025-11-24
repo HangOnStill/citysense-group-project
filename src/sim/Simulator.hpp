@@ -22,6 +22,9 @@ class Simulator{
         Clock clock_;
         SeededRNG rng_;
 
+        double last_noise_db_ = 55.0;
+        double last_pm25_     = 20.0;
+
         //Helpers to simulate records
         model::SensorRecord generate_air_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, 
             SimulatorProfile profile);

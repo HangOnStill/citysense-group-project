@@ -27,9 +27,9 @@ namespace sim{
         const auto end_time = start_time + hours(24);
 
         //Example Sensors - Will prob be changed
-        const std::vector<std::string> traffic_sensors = {"TRF-SNS-01", "TRF-SNS-02"};
-        const std::vector<std::string> air_sensors = {"AIR-SNS-01"};
-        const std::vector<std::string> noise_sensors = {"NSE-SNS-01"};
+        const std::vector<std::string> traffic_sensors = {"traffic-glebe", "traffic-downtown", "traffic-byward"};
+        const std::vector<std::string> air_sensors = {"air-glebe", "air-downtown", "air-byward"};
+        const std::vector<std::string> noise_sensors = {"noise-glebe", "noise-downtown", "noise-byward"};
 
         //Example Zones
         constexpr int ZONE_DOWNTOWN = 1;
@@ -42,17 +42,20 @@ namespace sim{
             int minute = duration_cast<minutes>(ts - start_time).count();
 
             //Traffic being generated every step size (usually a minute)
-            output.push_back(generate_traffic_record(ts, ZONE_DOWNTOWN, traffic_sensors[0], profile));
-            output.push_back(generate_traffic_record(ts, ZONE_GLEBE, traffic_sensors[1], profile));
+            output.push_back(generate_traffic_record(ts, ZONE_GLEBE, traffic_sensors[0], profile));
+            output.push_back(generate_traffic_record(ts, ZONE_DOWNTOWN, traffic_sensors[1], profile));
+            output.push_back(generate_traffic_record(ts, ZONE_BYWARD, traffic_sensors[2], profile));
+            
 
-            //Air quality being generated every 5 minutes of simulated time
-            if (minute % 5 == 0){
-                output.push_back(generate_air_record(ts, ZONE_BYWARD, air_sensors[0], profile));
-            }
+            //Air quality being generated every step size
+            output.push_back(generate_air_record(ts, ZONE_GLEBE, air_sensors[0], profile));
+            output.push_back(generate_air_record(ts, ZONE_DOWNTOWN, air_sensors[1], profile));
+            output.push_back(generate_air_record(ts, ZONE_BYWARD, air_sensors[2], profile));
 
             //Noise being generated every step size
-            output.push_back(generate_noise_record(ts, ZONE_BYWARD, noise_sensors[0], profile));
-
+            output.push_back(generate_noise_record(ts, ZONE_GLEBE, noise_sensors[0], profile));
+            output.push_back(generate_noise_record(ts, ZONE_DOWNTOWN, noise_sensors[1], profile));
+            output.push_back(generate_noise_record(ts, ZONE_BYWARD, noise_sensors[2], profile));
             clock_.advance();
         }
         return output;
@@ -68,33 +71,64 @@ namespace sim{
         int hour = hour_of_day(ts);
         bool is_weekday = (profile == SimulatorProfile::Weekday); //Return true if generateDay is called with SimulatorProfile that is weekday
 
-        double speed = 0.0;
-        double flow = 0.0;
+
+        double base_min;
+        double base_max;
+
+        switch(zone_id){
+            case 1: // Downtown
+            base_min = 35.0; 
+            base_max = 55.0;
+            break;
+        case 2: // Byward Market
+            base_min = 30.0;
+            base_max = 50.0;
+            break;
+        case 3: // Glebe
+        default:
+            base_min = 25.0;
+            base_max = 45.0;
+            break;
+        }
+        double speed = rng_.uniform(base_min, base_max);
+
         if (is_weekday) {
-            if (hour >= 7 && hour <= 9) {                // AM rush
-                speed = rng_.uniform(12.0, 25.0);
-                flow      = rng_.uniform(20.0, 35.0);
+            double rush_slowdown_min;
+            double rush_slowdown_max;
+            if (hour >= 7 && hour <= 9) {  // AM rush         
+                switch(zone_id){
+                    // Downtown rush hour slows traffic more than Byward and Glebe, Byward slows less than Downtown but more than Glebe, etc
+                    case 1: rush_slowdown_min = -25; rush_slowdown_max = -12; break;
+                    case 2: rush_slowdown_min = -20; rush_slowdown_max = -10; break; 
+                    case 3: rush_slowdown_min = -15; rush_slowdown_max = -8;  break; 
+                }
             } else if (hour >= 16 && hour <= 18) {       // PM rush
-                speed = rng_.uniform(15.0, 30.0);
-                flow      = rng_.uniform(18.0, 32.0);
-            } else {                                     // Normal flow
-                speed = rng_.uniform(35.0, 55.0);
-                flow      = rng_.uniform(10.0, 20.0);
+                switch(zone_id){
+                    // Downtown rush hour slows traffic more than Byward and Glebe, Byward slows less than Downtown but more than Glebe, etc
+                    case 1: rush_slowdown_min = -20; rush_slowdown_max = -10; break;
+                    case 2: rush_slowdown_min = -15; rush_slowdown_max = -8; break; 
+                    case 3: rush_slowdown_min = -10; rush_slowdown_max = -5;  break; 
+                }
             }
+            speed += rng_.uniform(rush_slowdown_min, rush_slowdown_max);
         } else { // Weekend
-            if (hour >= 11 && hour <= 14) {
-                speed = rng_.uniform(30.0, 45.0);
-                flow      = rng_.uniform(12.0, 22.0);
-            } else if (hour >= 20 && hour <= 23) {
-                speed = rng_.uniform(28.0, 42.0);
-                flow      = rng_.uniform(10.0, 20.0);
-            } else {
-                speed = rng_.uniform(40.0, 60.0);
-                flow      = rng_.uniform(5.0, 15.0);
+           //Slowdown near Byward lunch & clubs
+            if (zone_id == 2 && hour >= 11 && hour <= 13) {
+                speed += rng_.uniform(-8.0, 0.0);
+            }
+            if (zone_id == 2 && hour >= 20 && hour <= 23) {
+                speed += rng_.uniform(-12.0, -3.0);
             }
         }
+        speed = std::clamp(speed, 5.0, 70.0);
         output.speed = speed;
-        output.flow  = flow;
+        
+        double flow;
+        if (speed < 20) flow = rng_.uniform(20, 35);
+        else if (speed < 35) flow = rng_.uniform(15, 25);
+        else flow = rng_.uniform(8, 18);
+
+        output.flow = flow;
         return output;
     }
 
@@ -106,16 +140,21 @@ namespace sim{
 
         int hour = hour_of_day(ts);
 
-        double base_air_quality = (profile == SimulatorProfile::Weekday) ? 25.0 : 20.0;
+        double min_step = -1.5;
+        double max_step = 1.5;
 
         if (hour >= 7 && hour <= 9) {
-        base_air_quality += 8.0; // morning pollution bump
+        min_step = -1.0;
+         max_step = 5.0; // morning pollution bump
         }
 
-        double pm25 = base_air_quality + rng_.uniform(-4.0, 4.0);
-        double pm10 = pm25 + rng_.uniform(8.0, 18.0);
+        double delta = rng_.uniform(min_step, max_step);
+        last_pm25_ += delta;
 
-        output.pm25 = pm25;
+        last_pm25_ = std::clamp(last_pm25_, 5.0, 100.0);
+        double pm10 = last_pm25_ * rng_.uniform(1.3, 1.8);
+
+        output.pm25 = last_pm25_;
         output.pm10 = pm10;
         return output;
     }
@@ -127,17 +166,23 @@ namespace sim{
         output.zone_id = zone_id;
 
         int hour = hour_of_day(ts);
-        double db = rng_.uniform(40.0, 65.0);  // baseline city noise
+        double min_step = -2.0;
+        double max_step = 2.5;
 
         if (hour >= 7 && hour <= 9) {
-            db += rng_.uniform(0.0, 5.0);      // weekday morning spike
+            min_step = -1.0;
+            max_step =  5.0;      // weekday morning spike
         }
 
         if (profile == SimulatorProfile::Weekend && hour >= 20 && hour <= 23) {
-            db += rng_.uniform(5.0, 15.0);     // nightlife effect
+            min_step =  0.0;
+            max_step =  7.0;     // nightlife effect
         }
 
-        output.db = db;
+        double delta = rng_.uniform(min_step, max_step);
+        last_noise_db_ += delta;
+        last_noise_db_ = std::clamp(last_noise_db_, 35.0, 95.0);
+        output.db = last_noise_db_;
         return output;
     }
 }
