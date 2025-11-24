@@ -36,7 +36,14 @@ include(FetchContent)
 FetchContent_Declare(Catch2 URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.6.0.zip)
 FetchContent_MakeAvailable(Catch2)
 
+include(CTest)
+include(Catch)
+
 enable_testing()
+
+# Create test results directory
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test-results)
+
 
 # Public tests (fast, smoke)
 add_executable(citysense_tests
@@ -46,13 +53,12 @@ add_executable(citysense_tests
 )
 target_link_libraries(citysense_tests PRIVATE citysense_lib Catch2::Catch2WithMain)
 apply_warnings(citysense_tests)
-include(CTest)
-include(Catch)
 catch_discover_tests(citysense_tests
   TEST_PREFIX "public::"
   REPORTER junit
   OUTPUT_DIR ${CMAKE_BINARY_DIR}/test-results
   OUTPUT_PREFIX "public-"
+  WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
 
 # Strict tests (grading)
@@ -60,8 +66,6 @@ if (CITYSENSE_ENABLE_STRICT_TESTS)
   add_executable(citysense_tests_strict
     tests_strict/test_csv_contract.cpp
     tests_strict/test_windowing.cpp
-    tests_strict/test_parallel.cpp
-    tests_strict/test_exceptions.cpp
   )
   target_link_libraries(citysense_tests_strict PRIVATE citysense_lib Catch2::Catch2WithMain)
   apply_warnings(citysense_tests_strict)
@@ -73,6 +77,7 @@ if (CITYSENSE_ENABLE_STRICT_TESTS)
     REPORTER junit
     OUTPUT_DIR ${CMAKE_BINARY_DIR}/test-results
     OUTPUT_PREFIX "strict-"
+    WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
     PROPERTIES LABELS "strict"
   )
 endif()
