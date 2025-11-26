@@ -1,4 +1,6 @@
 #include <catch2/catch_test_macros.hpp>
+#include <vector>
+
 #include "core/Aggregator.hpp"
 #include "core/Detector.hpp"
 #include "core/Window.hpp"
@@ -15,8 +17,10 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     DummyDetector d;
     d.detect(w);
 
-    // Minimal consume/summary exercise
-    agg.consume(std::vector<int>{1,2,3});
+    // Minimal consume/summary exercise using SensorRecord,
+    // matching the new SensorRowRange contract.
+    std::vector<model::SensorRecord> recs(3); // default-initialized records
+    agg.consume(recs);
     auto s = agg.summary();
     REQUIRE(s.total_count >= 1);
 

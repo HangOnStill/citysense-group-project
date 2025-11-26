@@ -143,8 +143,9 @@ class ReaderCSV {
             records.push_back(record);
             ++produced;
           }
-        } catch (const std::exception& e) {
-          continue;  // Skip malformed rows
+        }
+        catch (const std::exception&) {
+            continue;  // Skip malformed rows
         }
       }
       file.close();
