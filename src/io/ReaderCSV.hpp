@@ -5,17 +5,32 @@
 #include <stdexcept>
 #include <utility>
 #include <vector>
-#include <unordered_map>
+#include <fstream>
+#include <sstream>
+#include <map>
 #include <algorithm>
-#include <cctype>
-#include <ctime>
-#include <filesystem>
-
+#include <stdexcept>
+#include <chrono>
+#include <iomanip>
 #include "../model/SensorRecord.hpp"
-
+using namespace std;
 namespace io {
 
-// Minimal contract only. Students must implement real parsing.
+/**
+ * CSV Reader for sensor data files
+ * 
+ * PURPOSE:
+ * - Reads CSV files containing sensor data (air quality, noise, traffic)
+ * - Supports multiple input files processed sequentially
+ * - Case-insensitive header parsing
+ * - Handles optional fields based on sensor type
+ * - Tracks parsing statistics and errors
+ * 
+ * USAGE:
+ *   ReaderCSV reader({"data/air.csv", "data/traffic.csv"});
+ *   auto batch = reader.next_batch(100); // Read up to 100 records
+ *   auto stats = reader.get_stats();     // Get parsing statistics
+ */
 class ReaderCSV {
  public:
   explicit ReaderCSV(std::vector<std::string> inputs)
@@ -153,7 +168,6 @@ class ReaderCSV {
     }
     return records;
   }
-
  private:
   std::vector<std::string> inputs_;
 };  // namespace io
