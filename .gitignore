@@ -1,6 +1,22 @@
-/build/
-/.vscode/
-/.idea/
+# ----------------------------
+# Build & IDE Artifacts
+# ----------------------------
+
+# Visual Studio workspace folder (CAUSES permission denied errors)
+.vs/
+
+# CMake build directories
+build/
+out/
+
+# VS Code, IntelliJ, CLion, etc.
+.vscode/
+.idea/
+
+# User-specific files
 *.user
 *.log
 *.cache
+
+# Runtime output (your app writes this)
+citysense_report.json

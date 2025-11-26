@@ -1,5 +1,9 @@
 #pragma once
-#include <string>
+#include <chrono>
+#include <fstream>
+#include <sstream>
+#include <stdexcept>
+#include <utility>
 #include <vector>
 #include <fstream>
 #include <sstream>
@@ -28,117 +32,144 @@ namespace io {
  *   auto stats = reader.get_stats();     // Get parsing statistics
  */
 class ReaderCSV {
-public:
-    /**
-     * Constructor: Initialize CSV reader with list of input files
-     * @param inputs Vector of file paths to read
-     * @throws std::invalid_argument if inputs is empty
-     * @throws std::runtime_error if first file cannot be opened
-     */
-    explicit ReaderCSV(vector<std::string> inputs)
-      : inputs_(move(inputs)), current_file_index_(0) {
-        if (inputs_.empty()) {
-            throw std::invalid_argument("No input files provided");
+ public:
+  explicit ReaderCSV(std::vector<std::string> inputs)
+      : inputs_(std::move(inputs)) {}
+
+  std::vector<model::SensorRecord> next_batch(std::size_t max_rows = 1000) {
+    // Parse CSV headers, map to SensorRecord fields, return batch
+
+    std::vector<model::SensorRecord> records;
+    std::size_t produced = 0;
+
+    for (std::string input : inputs_) {
+      if (input.empty()) {
+        throw std::runtime_error("Input file path is empty");
+      }
+
+      // Try path as-is, then try ../data/filename
+      std::string path = input;
+      if (!std::filesystem::exists(path)) {
+        std::filesystem::path alt("../");
+        alt /= input;
+        if (std::filesystem::exists(alt)) {
+          path = alt.string();
         }
-        open_next_file();
+      }
+
+      std::ifstream file(path);
+      if (!file.is_open()) {
+        throw std::runtime_error("Input file does not exist: " + input);
+      }
+
+      std::string header_line;
+      std::getline(file, header_line);  // Read and parse header
+
+      // Parse header to find column indices
+      std::vector<std::string> header_fields;
+      std::istringstream hss(header_line);
+      std::string token;
+      while (std::getline(hss, token, ',')) {
+        header_fields.push_back(token);
+      }
+
+      // Build column index map
+      std::unordered_map<std::string, size_t> col_idx;
+      for (size_t i = 0; i < header_fields.size(); ++i) {
+        col_idx[header_fields[i]] = i;
+      }
+
+      while (produced < max_rows && std::getline(file, header_line)) {
+        model::SensorRecord record;
+        std::vector<std::string> fields;
+        fields.reserve(6);
+        std::istringstream ss(header_line);
+
+        // Parse CSV line into fields
+        while (std::getline(ss, token, ',')) {
+          fields.push_back(token);
+        }
+
+        try {
+          if (fields.size() >= 3) {
+            // Parse timestamp (ISO8601 format: YYYY-MM-DDTHH:MM:SSZ)
+            if (col_idx.count("timestamp")) {
+              size_t ti = col_idx["timestamp"];
+              if (ti < fields.size()) {
+                std::string ts_str = fields[ti];
+                std::istringstream tss(ts_str);
+                std::chrono::sys_seconds tp;
+                tss >> std::chrono::parse("%Y-%m-%dT%H:%M:%SZ", tp);
+                if (tss.fail()) {
+                  continue;  // skip row if timestamp parsing fails
+                }
+                record.ts = tp;
+              }
+            }
+
+            // Parse sensor_id
+            if (col_idx.count("sensor_id")) {
+              size_t si = col_idx["sensor_id"];
+              if (si < fields.size()) {
+                record.sensor_id = fields[si];
+              }
+            }
+
+            // Parse zone_id
+            if (col_idx.count("zone_id")) {
+              size_t zi = col_idx["zone_id"];
+              if (zi < fields.size()) {
+                record.zone_id = std::stoi(fields[zi]);
+              }
+            }
+
+            // Parse optional fields based on header presence
+            if (col_idx.count("pm25")) {
+              size_t idx = col_idx["pm25"];
+              if (idx < fields.size() && !fields[idx].empty()) {
+                record.pm25 = std::stod(fields[idx]);
+              }
+            }
+            if (col_idx.count("pm10")) {
+              size_t idx = col_idx["pm10"];
+              if (idx < fields.size() && !fields[idx].empty()) {
+                record.pm10 = std::stod(fields[idx]);
+              }
+            }
+            if (col_idx.count("db")) {
+              size_t idx = col_idx["db"];
+              if (idx < fields.size() && !fields[idx].empty()) {
+                record.db = std::stod(fields[idx]);
+              }
+            }
+            if (col_idx.count("speed")) {
+              size_t idx = col_idx["speed"];
+              if (idx < fields.size() && !fields[idx].empty()) {
+                record.speed = std::stod(fields[idx]);
+              }
+            }
+            if (col_idx.count("flow")) {
+              size_t idx = col_idx["flow"];
+              if (idx < fields.size() && !fields[idx].empty()) {
+                record.flow = std::stod(fields[idx]);
+              }
+            }
+
+            records.push_back(record);
+            ++produced;
+          }
+        }
+        catch (const std::exception&) {
+            continue;  // Skip malformed rows
+        }
+      }
+      file.close();
+      if (produced >= max_rows) break;
     }
+    return records;
+  }
+ private:
+  std::vector<std::string> inputs_;
+};  // namespace io
 
-    /**
-     * Read the next batch of records from CSV files
-     * @param max_rows Maximum number of records to return (default: 1000)
-     * @return Vector of parsed SensorRecord objects
-     * 
-     * NOTE: Automatically moves to next file when current file is exhausted
-     */
-    vector<model::SensorRecord> next_batch(std::size_t max_rows = 1000);
-
-    /**
-     * Statistics structure for tracking CSV parsing results
-     * - total_rows: Total data rows encountered (excludes header)
-     * - parsed_rows: Successfully parsed rows
-     * - malformed_rows: Rows that failed parsing
-     * - errors: List of error messages for debugging
-     */
-    struct ParseStats {
-        size_t total_rows = 0;
-        size_t parsed_rows = 0;
-        size_t malformed_rows = 0;
-        std::vector<std::string> errors;
-    };
-
-    /**
-     * Get current parsing statistics
-     * @return Reference to internal ParseStats structure
-     */
-    const ParseStats& get_stats() const { return stats_; }
-
-private:
-    // Member variables
-    std::vector<std::string> inputs_;           // List of CSV files to process
-    size_t current_file_index_;                 // Current file being processed
-    std::ifstream current_stream_;              // File stream for current file
-    std::map<std::string, size_t> column_map_;  // Maps column names to indices
-    bool header_parsed_ = false;                // Flag for header processing
-    ParseStats stats_;                          // Accumulated parsing statistics
-
-    // Private helper methods
-    
-    /**
-     * Open the next file in the inputs_ list
-     * @throws std::runtime_error if file cannot be opened
-     */
-    void open_next_file();
-    
-    /**
-     * Parse CSV header line and build column mapping
-     * Headers are normalized to lowercase for case-insensitive matching
-     * @param line The header line from CSV
-     * @throws std::runtime_error if required columns are missing
-     */
-    void parse_header(const std::string& line);
-    
-    /**
-     * Split a CSV line into fields
-     * @param line Raw CSV line
-     * @return Vector of trimmed field values
-     */
-    std::vector<std::string> split_line(const std::string& line) const;
-    
-    /**
-     * Parse a row of CSV data into a SensorRecord
-     * @param fields Vector of field values from CSV
-     * @return SensorRecord if successful, nullopt if parsing fails
-     */
-    std::optional<model::SensorRecord> parse_row(const std::vector<std::string>& fields);
-    
-    /**
-     * Parse ISO 8601 timestamp (e.g., "2025-10-13T08:00:00Z")
-     * @param ts_str Timestamp string
-     * @return std::chrono time_point
-     * @throws std::runtime_error if format is invalid
-     */
-    std::chrono::system_clock::time_point parse_timestamp(const std::string& ts_str);
-    
-    /**
-     * Convert string to lowercase for case-insensitive comparison
-     * @param str Input string
-     * @return Lowercase version of input
-     */
-    std::string to_lower(const std::string& str) const;
-    
-    /**
-     * Safely parse a string to double
-     * @param str String to parse
-     * @return Double value if valid, nullopt otherwise
-     */
-    std::optional<double> parse_double(const std::string& str) const;
-    
-    /**
-     * Safely parse a string to int
-     * @param str String to parse
-     * @return Int value if valid, nullopt otherwise
-     */
-    std::optional<int> parse_int(const std::string& str) const;
-};
-
-} // namespace io
+}  // namespace io

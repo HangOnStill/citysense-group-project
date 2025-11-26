@@ -3,13 +3,14 @@
 #include <vector>
 #include "core/Aggregator.hpp"
 #include "model/SensorRecord.hpp"
+#include "sim/Clock.hpp"
 
-using clock_t = std::chrono::system_clock;
+using sys_clock_t = std::chrono::system_clock;
 
 static model::SensorRecord mk(int zone, int minutes_from_epoch) {
     model::SensorRecord r;
     r.zone_id = zone;
-    r.ts = clock_t::time_point(std::chrono::minutes(minutes_from_epoch));
+    r.ts = sys_clock_t::time_point(std::chrono::minutes(minutes_from_epoch));
     return r;
 }
 
