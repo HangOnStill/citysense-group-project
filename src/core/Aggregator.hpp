@@ -14,6 +14,12 @@ namespace core {
         std::unordered_map<int, int> by_zone; // zone_id -> count
     };
 
+    struct Incident {
+        std::string incident_id;
+        std::string message;
+        model::SensorRecord instance;
+    };
+
     class Aggregator {
     public:
         explicit Aggregator(int window_minutes)
@@ -80,6 +86,10 @@ namespace core {
             s.by_zone = by_zone_;
             return s;
         }
+        
+        const std::vector<Incident>& getIncidents() const {
+            return incidents;
+        }
 
     private:
         void recompute_by_zone_unlocked() {
@@ -96,6 +106,8 @@ namespace core {
         std::unordered_map<int, int> by_zone_;    // counts in current window
 
         mutable std::mutex mutex_;
+
+        std::vector<Incident> incidents;
     };
 
 } // namespace core
