@@ -73,6 +73,29 @@ namespace core {
             total_count_ += added;
         }
 
+        // Convenient function that uilizes consume() function and then filters the current
+        // window's records by zone. 
+        template <typename Range>
+        void consume_by_zone(const Range& r, int zone_id_) {
+            consume(r);
+            int no_removed = 0;
+
+            std::scoped_lock lock(mutex_);
+            auto erase_it = std::remove_if(
+                window_.records.begin(),
+                window_.records.end(),
+                [&](const model::SensorRecord& rec) {
+                    if (rec.zone_id != zone_id_) {
+                        ++no_removed;
+                        return true;
+                    }
+                    return false;
+                }
+            );
+            window_.records.erase(erase_it, window_.records.end());
+            total_count_ -= no_removed;
+        }
+
         const Window& current_window_view() const {
             // NOTE: read-only snapshot; callers should avoid using this
             // concurrently with writes unless they provide external sync.
