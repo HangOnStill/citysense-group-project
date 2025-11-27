@@ -14,12 +14,6 @@ namespace core {
         std::unordered_map<int, int> by_zone; // zone_id -> count
     };
 
-    struct Incident {
-        std::string incident_id;
-        std::string message;
-        model::SensorRecord instance;
-    };
-
     class Aggregator {
     public:
         explicit Aggregator(int window_minutes)
@@ -113,17 +107,6 @@ namespace core {
             s.by_zone = by_zone_;
             return s;
         }
-        
-        const std::vector<Incident>& get_incidents() const {
-            return incidents;
-        }
-        void record_incident(const Incident& incident) {
-            std::scoped_lock lock(mutex_);
-            incidents.push_back(incident);
-        }
-        void clear_incidents() {
-            incidents.clear();
-        }
 
         // Computes the mean speed, flow, pm25, pm10, and db by each zone in a SensorRecord range.
         // A hashmap is returned, where each zone has a corresponding hashmap containing its averaged
@@ -209,8 +192,6 @@ namespace core {
         std::unordered_map<int, int> by_zone_;    // counts in current window
 
         mutable std::mutex mutex_;
-
-        std::vector<Incident> incidents;
     };
 
 } // namespace core
