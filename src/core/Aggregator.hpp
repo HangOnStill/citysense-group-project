@@ -172,6 +172,22 @@ namespace core {
             }
             return result;
         }
+
+        // Calculate mean values (speed, flow, pm25, pm10, db) across all windows.
+        // NOTE: You can try passing in 'window_archive' variable in this
+        std::unordered_map<int,MetricsMap> calculate_rolling_means(
+            const std::vector<Window>& windows) {
+                
+                std::vector<model::SensorRecord> combined_recs;
+                for (const auto& win : windows) {
+                    std::vector<model::SensorRecord> recs = win.records;
+
+                    combined_recs.reserve(recs.size());
+                    combined_recs.insert(combined_recs.end(),recs.begin(),recs.end());
+                }
+                return compute_means(combined_recs);
+            }
+
         
     private:
         void recompute_by_zone_unlocked() {
@@ -183,6 +199,7 @@ namespace core {
 
         Window window_;
         int window_minutes_{ 0 };
+        std::vector<Window> window_archive;
 
         int total_count_{ 0 };                       // all seen elements
         std::unordered_map<int, int> by_zone_;    // counts in current window

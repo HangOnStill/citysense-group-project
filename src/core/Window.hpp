@@ -8,7 +8,6 @@ namespace core {
 struct Window {
     std::vector<model::SensorRecord> records;
 
-    int zone_id;
     std::chrono::system_clock::time_point time_start{};
 };
 
