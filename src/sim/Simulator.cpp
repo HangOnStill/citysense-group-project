@@ -1,3 +1,4 @@
+#define _LIBCPP_ENABLE_CXX20_CHRONO
 #include <chrono>
 
 #include "Simulator.hpp"
@@ -13,18 +14,31 @@ namespace sim{
         int h = static_cast<int>(hrs % 24);
         return (h < 0) ? h + 24 : h;
     }
-
     Simulator::Simulator(Clock clock, SeededRNG rng) : clock_(clock), rng_(rng){}
 
-    //Will Simulate a full day of data, randomised based on a given seed, will be 1 day, regardless of clock step_size
-    std::vector<SensorRecord> Simulator::generate_day(SimulatorProfile profile){
-        std::vector<SensorRecord> output;
-        output.reserve(4000);
+    void Simulator::start(SimulatorProfile profile){
+        profile_ = profile;
+        running_ = true;
 
+        last_noise_db_ = 25.0;
+        last_pm25_ = 20.0;
+    }
+
+    void Simulator::pause(){
+        running_ = false;
+    }
+    
+    void Simulator::resume(){
+        running_ = true;
+    }
+
+    //Simulates data from one time step
+    std::vector<SensorRecord> Simulator::generate_step(SimulatorProfile profile){
         using namespace std::chrono;
-
-        const auto start_time = clock_.now();
-        const auto end_time = start_time + hours(24);
+        std::vector<SensorRecord> output;
+        output.reserve(9);
+        
+        auto ts = clock_.now();
 
         //Example Sensors - Will prob be changed
         const std::vector<std::string> traffic_sensors = {"traffic-glebe", "traffic-downtown", "traffic-byward"};
@@ -36,32 +50,119 @@ namespace sim{
         constexpr int ZONE_GLEBE    = 2;
         constexpr int ZONE_BYWARD   = 3;
 
-        //Loops for 24 hours, regardless of time step used in clock
-        while (clock_.now() < end_time){
-            auto ts = clock_.now();
-            int minute = duration_cast<minutes>(ts - start_time).count();
 
-            //Traffic being generated every step size (usually a minute)
-            output.push_back(generate_traffic_record(ts, ZONE_GLEBE, traffic_sensors[0], profile));
-            output.push_back(generate_traffic_record(ts, ZONE_DOWNTOWN, traffic_sensors[1], profile));
-            output.push_back(generate_traffic_record(ts, ZONE_BYWARD, traffic_sensors[2], profile));
+
+        //Generate traffic data, once for each sensor
+        output.push_back(generate_traffic_record(ts, ZONE_GLEBE, traffic_sensors[0], profile));
+        output.push_back(generate_traffic_record(ts, ZONE_DOWNTOWN, traffic_sensors[1], profile));
+        output.push_back(generate_traffic_record(ts, ZONE_BYWARD, traffic_sensors[2], profile));
             
 
-            //Air quality being generated every step size
-            output.push_back(generate_air_record(ts, ZONE_GLEBE, air_sensors[0], profile));
-            output.push_back(generate_air_record(ts, ZONE_DOWNTOWN, air_sensors[1], profile));
-            output.push_back(generate_air_record(ts, ZONE_BYWARD, air_sensors[2], profile));
+        //Generate air quality data, once for each sensor
+        output.push_back(generate_air_record(ts, ZONE_GLEBE, air_sensors[0], profile));
+        output.push_back(generate_air_record(ts, ZONE_DOWNTOWN, air_sensors[1], profile));
+        output.push_back(generate_air_record(ts, ZONE_BYWARD, air_sensors[2], profile));
 
-            //Noise being generated every step size
-            output.push_back(generate_noise_record(ts, ZONE_GLEBE, noise_sensors[0], profile));
-            output.push_back(generate_noise_record(ts, ZONE_DOWNTOWN, noise_sensors[1], profile));
-            output.push_back(generate_noise_record(ts, ZONE_BYWARD, noise_sensors[2], profile));
-            clock_.advance();
-        }
+        ///Generate noise data, once for each sensor
+        output.push_back(generate_noise_record(ts, ZONE_GLEBE, noise_sensors[0], profile));
+        output.push_back(generate_noise_record(ts, ZONE_DOWNTOWN, noise_sensors[1], profile));
+        output.push_back(generate_noise_record(ts, ZONE_BYWARD, noise_sensors[2], profile));
+        clock_.advance();
         return output;
-
     }
 
+    std::vector<SensorRecord> Simulator::next_step(){
+        if (!running_){
+            return{};
+        }
+        auto output = generate_step(profile_);
+        return output;
+    }
+    
+    std::vector<SensorRecord> Simulator::next_batch(int steps){
+        std::vector<SensorRecord> output;
+        output.reserve(steps * 9);
+
+        for (int i = 0; i < steps; ++i) {
+            auto step = next_step();
+            if (step.empty()) break;
+            output.insert(output.end(), step.begin(), step.end());
+        }
+        return output;
+    }
+
+    //Will Simulate a full day of data, will be 1 day, regardless of clock step_size
+    std::vector<SensorRecord> Simulator::generate_day(SimulatorProfile profile){
+        using namespace std::chrono;
+        std::vector<SensorRecord> output;
+        output.reserve(9 * 1440);
+
+        const auto start_time = clock_.now();
+        const auto end_time   = start_time + hours(24);
+
+        while (clock_.now() < end_time) {
+            auto step_records = generate_step(profile);
+            output.insert(output.end(), step_records.begin(), step_records.end());
+        }
+
+        return output;
+    }
+
+    std::vector<SensorRecord> Simulator::generate_month(SimulatorProfile profile, int month){
+        using namespace std::chrono;
+
+        int days_in_month;
+        if (month == 1 || month == 3 || month == 5 || month == 7 || month == 8 || month == 10 || month == 12){
+            days_in_month = 31;
+        }else if (month == 4 || month == 6 || month == 9 || month == 11){
+            days_in_month = 30;
+        }else{
+            days_in_month = 28;
+        }
+        
+        std::vector<SensorRecord> output;
+        output.reserve(days_in_month * 13000);
+
+        const int year = 2024;
+        int y = 2024;
+        for (int day = 1; day <= days_in_month; ++day){
+            std::tm local{};
+            local.tm_year = year - 1900;
+            local.tm_mon  = month - 1;
+            local.tm_mday = day;
+            local.tm_hour = 0;
+
+            std::time_t tt = timegm(&local);
+            system_clock::time_point midnight = system_clock::from_time_t(tt);
+
+            clock_ = Clock(midnight, 60);
+            last_noise_db_ = 55.0;
+            last_pm25_     = 20.0;
+
+            auto records = generate_day(profile);
+            output.insert(output.end(), records.begin(), records.end());
+    }
+    return output;
+}
+
+    std::vector<SensorRecord> Simulator::generate_year(SimulatorProfile profile){
+        std::vector<SensorRecord> output;
+        output.reserve(12 * 403000);
+
+        for (int month = 1; month <= 12; month++){
+
+            auto month_record = generate_month(profile, month);
+            output.insert(output.end(),
+              std::make_move_iterator(month_record.begin()),
+              std::make_move_iterator(month_record.end()));
+        }
+        return output;
+    }
+    
+
+
+
+    
     SensorRecord Simulator::generate_traffic_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
         SensorRecord output{};
         output.ts = ts;
@@ -69,8 +170,7 @@ namespace sim{
         output.sensor_id = sensor_id;
         
         int hour = hour_of_day(ts);
-        bool is_weekday = (profile == SimulatorProfile::Weekday); //Return true if generateDay is called with SimulatorProfile that is weekday
-
+        bool is_weekday = (profile == SimulatorProfile::Weekday);
 
         double base_min;
         double base_max;
@@ -144,8 +244,8 @@ namespace sim{
         double max_step = 1.5;
 
         if (hour >= 7 && hour <= 9) {
-        min_step = -1.0;
-         max_step = 5.0; // morning pollution bump
+            min_step = -1.0;
+            max_step = 5.0; // morning pollution bump
         }
 
         double delta = rng_.uniform(min_step, max_step);
