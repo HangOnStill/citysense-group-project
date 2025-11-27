@@ -32,10 +32,10 @@ target_link_libraries(citysense PRIVATE citysense_lib)
 apply_warnings(citysense)
 
 
-#add_executable(test_simulator tests/test_simulator.cpp)
-#target_include_directories(test_simulator PRIVATE ../src)
-#target_link_libraries(test_simulator PRIVATE citysense_lib)
-#target_sources(test_simulator PRIVATE src/sim/Simulator.cpp)
+add_executable(test_simulator tests/test_simulator.cpp)
+target_include_directories(test_simulator PRIVATE ../src)
+target_link_libraries(test_simulator PRIVATE citysense_lib)
+target_sources(test_simulator PRIVATE src/sim/Simulator.cpp)
 
 
 
