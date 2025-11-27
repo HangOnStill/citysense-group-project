@@ -71,6 +71,8 @@ namespace core {
             const int added =
                 static_cast<int>(std::distance(it, it_end));
             total_count_ += added;
+
+            window_archive.push_back(window_);
         }
 
         // Convenient function that uilizes consume() function and then filters the current
@@ -94,6 +96,8 @@ namespace core {
             );
             window_.records.erase(erase_it, window_.records.end());
             total_count_ -= no_removed;
+
+            window_archive.push_back(window_);
         }
 
         const Window& current_window_view() const {
