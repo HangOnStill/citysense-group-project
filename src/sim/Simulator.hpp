@@ -40,8 +40,13 @@ class Simulator{
         Clock clock_;
         SeededRNG rng_;
 
-        double last_noise_db_ = 55.0;
-        double last_pm25_     = 20.0;
+        double last_pm25_glebe_     = 20.0;
+        double last_pm25_downtown_  = 20.0;
+        double last_pm25_byward_    = 20.0;
+
+        double last_noise_glebe_    = 50.0;
+        double last_noise_downtown_ = 50.0;
+        double last_noise_byward_   = 50.0;
 
         bool running_ = false;
         SimulatorProfile profile_{SimulatorProfile::Weekday};
