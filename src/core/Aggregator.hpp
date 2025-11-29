@@ -65,6 +65,33 @@ namespace core {
             const int added =
                 static_cast<int>(std::distance(it, it_end));
             total_count_ += added;
+
+            window_archive.push_back(window_);
+        }
+
+        // Convenient function that uilizes consume() function and then filters the current
+        // window's records by zone. 
+        template <typename Range>
+        void consume_by_zone(const Range& r, int zone_id_) {
+            consume(r);
+            int no_removed = 0;
+
+            std::scoped_lock lock(mutex_);
+            auto erase_it = std::remove_if(
+                window_.records.begin(),
+                window_.records.end(),
+                [&](const model::SensorRecord& rec) {
+                    if (rec.zone_id != zone_id_) {
+                        ++no_removed;
+                        return true;
+                    }
+                    return false;
+                }
+            );
+            window_.records.erase(erase_it, window_.records.end());
+            total_count_ -= no_removed;
+
+            window_archive.push_back(window_);
         }
 
         const Window& current_window_view() const {
@@ -81,6 +108,74 @@ namespace core {
             return s;
         }
 
+        // Computes the mean speed, flow, pm25, pm10, and db by each zone in a SensorRecord range.
+        // A hashmap is returned, where each zone has a corresponding hashmap containing its averaged
+        // metrics.
+        using MetricsMap = std::unordered_map<std::string, double>;
+        // CountMap to help compute denominators, in order to calculate the mean.
+        using CountMap = std::unordered_map<std::string, int>;
+
+        template <typename Range>
+        std::unordered_map<int, MetricsMap> compute_means(const Range& r) {
+
+            auto it = std::begin(r);
+            auto it_end = std::end(r);
+            if (it == it_end) return {};
+
+            std::unordered_map<int, MetricsMap> result;
+            std::unordered_map<int, CountMap> counter;
+
+            using Value = std::decay_t<decltype(*it)>;
+            if constexpr (std::is_same_v<Value, model::SensorRecord>) {
+
+                for (auto cur=it; cur != it_end; cur++) {
+                    model::SensorRecord rec = *cur;
+                    if (rec.speed.has_value()) {
+                        result[rec.zone_id]["speed"] += rec.speed.value(); counter[rec.zone_id]["speed"]++;
+                    }
+                    if (rec.flow.has_value()) {
+                        result[rec.zone_id]["flow"] += rec.flow.value(); counter[rec.zone_id]["flow"]++;
+                    }
+                    if (rec.pm25.has_value()) {
+                        result[rec.zone_id]["pm25"] += rec.pm25.value(); counter[rec.zone_id]["pm25"]++;
+                    }
+                    if (rec.pm10.has_value()) {
+                        result[rec.zone_id]["pm10"] += rec.pm10.value(); counter[rec.zone_id]["pm10"]++;
+                    }
+                    if (rec.db.has_value()) {
+                        result[rec.zone_id]["db"] += rec.db.value(); counter[rec.zone_id]["db"]++;
+                    }
+                }
+            }
+            // Calculate means in each zone
+            for (const auto& [zone, metrics] : counter) {
+                for (const auto& [metric, denominator] : metrics) {
+
+                    if (denominator != 0) {
+                        double& numerator = result[zone][metric];
+                        numerator = numerator / static_cast<double>(denominator);
+                    }
+                }
+            }
+            return result;
+        }
+
+        // Calculate mean values (speed, flow, pm25, pm10, db) across all windows.
+        // NOTE: You can try passing in 'window_archive' variable in this
+        std::unordered_map<int,MetricsMap> calculate_rolling_means(
+            const std::vector<Window>& windows) {
+                
+                std::vector<model::SensorRecord> combined_recs;
+                for (const auto& win : windows) {
+                    std::vector<model::SensorRecord> recs = win.records;
+
+                    combined_recs.reserve(recs.size());
+                    combined_recs.insert(combined_recs.end(),recs.begin(),recs.end());
+                }
+                return compute_means(combined_recs);
+            }
+
+        
     private:
         void recompute_by_zone_unlocked() {
             by_zone_.clear();
@@ -91,6 +186,7 @@ namespace core {
 
         Window window_;
         int window_minutes_{ 0 };
+        std::vector<Window> window_archive;
 
         int total_count_{ 0 };                       // all seen elements
         std::unordered_map<int, int> by_zone_;    // counts in current window
