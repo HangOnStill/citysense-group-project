@@ -13,6 +13,7 @@ public:
     std::vector<core::Finding> detect(const core::Window& w) override {
         // TODO: rolling mean PM2.5 above threshold.
         //(void)pm25_thr_;
+        std::vector<core::Finding> findings;
         double numerator = 0.0;
         int denominator = 0;
 
@@ -29,10 +30,9 @@ public:
             std::chrono::system_clock::time_point end = w.records.back().ts;
 
             core::Finding finding{"AirAlert",rolling_mean,thresholds,start,end};
-            std::vector<core::Finding> findings; findings.push_back(finding);
-
-            return findings;
+            findings.push_back(finding);
         }
+        return findings;
     }
 };
 
