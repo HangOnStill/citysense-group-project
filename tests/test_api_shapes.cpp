@@ -4,16 +4,19 @@
 #include "core/Window.hpp"
 #include "model/SensorRecord.hpp"
 #include "io/ReaderCSV.hpp"
+#include "core/Finding.hpp"
 
 struct DummyDetector : core::Detector {
-    void detect(const core::Window&) override {}
+    std::vector<core::Finding> detect(const core::Window&) override {
+        return {};
+    }
 };
 
 TEST_CASE("Public API surfaces exist (types, methods)") {
     core::Aggregator agg(5);
     core::Window w;
     DummyDetector d;
-    d.detect(w);
+    std::vector<core::Finding> findings = d.detect(w);
 
     // Minimal consume/summary exercise
     agg.consume(std::vector<int>{1,2,3});
