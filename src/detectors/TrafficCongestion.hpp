@@ -53,7 +53,7 @@ public:
 
     std::map<timestamp, double> group_recs_by_min(const core::Window& w) {
         std::map<timestamp, double> speeds_per_min;
-        std::unordered_map<timestamp, int> recs_per_min;
+        std::map<timestamp, int> recs_per_min;
 
         for (const auto& rec : w.records) {
             if (rec.speed.has_value()) {
