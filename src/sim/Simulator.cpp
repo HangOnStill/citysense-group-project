@@ -1,5 +1,8 @@
-#define _LIBCPP_ENABLE_CXX20_CHRONO
+//#define _LIBCPP_ENABLE_CXX20_CHRONO
 #include <chrono>
+#include <fstream>
+#include <vector>
+#include <string>
 
 #include "Simulator.hpp"
 
@@ -173,6 +176,60 @@ namespace sim{
         return output;
     }
     
+    
+
+    void write_csv_files(const std::vector<SensorRecord>& records, const std::string& traffic_file, const std::string& air_file, const std::string& noise_file){
+        std::ofstream traffic_out(traffic_file);
+        std::ofstream air_out(air_file);
+        std::ofstream noise_out(noise_file);
+
+        if (!traffic_out.is_open() || !air_out.is_open() || !noise_out.is_open())
+            throw std::runtime_error("Failed to open one or more CSV output files.");
+
+        // Write headers
+        traffic_out << "timestamp,sensor_id,zone_id,speed,flow\n";
+        air_out     << "timestamp,sensor_id,zone_id,pm25,pm10\n";
+        noise_out   << "timestamp,sensor_id,zone_id,db\n";
+
+        for (const auto& r : records)
+        {
+
+            if (r.speed.has_value() || r.flow.has_value())
+            {
+                traffic_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << (r.speed.has_value() ? std::to_string(*r.speed) : "") << ","
+                    << (r.flow.has_value()  ? std::to_string(*r.flow)  : "")
+                    << "\n";
+            }
+
+            if (r.pm25.has_value() || r.pm10.has_value())
+            {
+                air_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << (r.pm25.has_value() ? std::to_string(*r.pm25) : "") << ","
+                    << (r.pm10.has_value() ? std::to_string(*r.pm10) : "")
+                    << "\n";
+            }
+
+            if (r.db.has_value())
+            {
+                noise_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << *r.db
+                    << "\n";
+            }
+        }
+    }
+
+
+
 
 
 
@@ -323,4 +380,4 @@ namespace sim{
         output.db = dbref;
         return output;
     }
-}
+}//namespace sim

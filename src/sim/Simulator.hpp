@@ -31,11 +31,12 @@ class Simulator{
 
         //Generates one full day of data
         std::vector<model::SensorRecord> generate_day(SimulatorProfile profile);
-        //Generates one full day of data
+        //Generates one full month of data
         std::vector<model::SensorRecord> generate_month(SimulatorProfile profile, int month);
         //Generates one full year of data
         std::vector<model::SensorRecord> generate_year(SimulatorProfile profile);
-    
+
+        
     private:
         Clock clock_;
         SeededRNG rng_;
@@ -64,4 +65,6 @@ class Simulator{
         model::SensorRecord generate_noise_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, 
             SimulatorProfile profile);
 };
+void write_csv_files(const std::vector<model::SensorRecord>& records, const std::string& traffic_file, const std::string& air_file, const std::string& noise_file);
+    
 }

@@ -23,6 +23,10 @@ system_clock::time_point start{seconds{0}};
     sim::print_year_summary(year_data_aggregated);
 
     auto month_data = sim.generate_month(profile, 1);
+        sim::write_csv_files(year_data,
+                             "./data/traffic_data.csv",
+                             "./data/air_data.csv",
+                             "./data/noise_data.csv");
     auto month_data_aggregated = sim::analyse_month(month_data, criteria);
     sim::print_month_summary(month_data_aggregated);
 
@@ -95,7 +99,6 @@ int main(){
     for (auto step : year){
         print_record(step);
     }
-    /*
     // ============================================================
     // 1. Test start() and next_step()
     // ============================================================
@@ -192,4 +195,4 @@ int main(){
     std::cout << "=== ALL TESTS PASSED ===\n";
     
 }
-    */
+*/
