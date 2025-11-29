@@ -1,4 +1,3 @@
-//#define _LIBCPP_ENABLE_CXX20_CHRONO
 #include <chrono>
 #include <fstream>
 #include <vector>
@@ -23,13 +22,13 @@ namespace sim{
         profile_ = profile;
         running_ = true;
 
-        double last_pm25_glebe_     = 20.0;
-        double last_pm25_downtown_  = 20.0;
-        double last_pm25_byward_    = 20.0;
+        last_pm25_glebe_     = 20.0;
+        last_pm25_downtown_  = 20.0;
+        last_pm25_byward_    = 20.0;
 
-        double last_noise_glebe_    = 50.0;
-        double last_noise_downtown_ = 50.0;
-        double last_noise_byward_   = 50.0;
+        last_noise_glebe_    = 50.0;
+        last_noise_downtown_ = 50.0;
+        last_noise_byward_   = 50.0;
     }
 
     void Simulator::pause(){
@@ -135,7 +134,6 @@ namespace sim{
         output.reserve(days_in_month * 13000);
 
         const int year = 2024;
-        int y = 2024;
         for (int day = 1; day <= days_in_month; ++day){
             std::tm local{};
             local.tm_year = year - 1900;
@@ -228,11 +226,6 @@ namespace sim{
         }
     }
 
-
-
-
-
-
     //Generates traffic data, values will increase/decrease in 'random' increments (deterministically) based on the previous value
     SensorRecord Simulator::generate_traffic_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
         SensorRecord output{};
@@ -264,8 +257,8 @@ namespace sim{
         double speed = rng_.uniform(base_min, base_max);
 
         if (is_weekday) {
-            double rush_slowdown_min;
-            double rush_slowdown_max;
+            double rush_slowdown_min = -10;
+            double rush_slowdown_max = 10;
             if (hour >= 7 && hour <= 9) {  // AM rush         
                 switch(zone_id){
                     // Downtown rush hour slows traffic more than Byward and Glebe, Byward slows less than Downtown but more than Glebe, etc
@@ -305,6 +298,7 @@ namespace sim{
 
     //Generates air data, values will increase/decrease in 'random' increments (deterministically) based on the previous value
     SensorRecord Simulator::generate_air_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
+        (void)profile;
         SensorRecord output{};
         output.ts = ts;
         output.zone_id = zone_id;

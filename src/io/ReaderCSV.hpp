@@ -44,7 +44,7 @@ namespace io {
 
                     auto cols = split(line);
                     if (cols.empty()) {
-                        +malformed_count_;
+                        ++malformed_count_;
                         continue;
                     }
 

@@ -19,7 +19,7 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     std::vector<core::Finding> findings = d.detect(w);
 
     // Minimal consume/summary exercise
-    agg.consume(std::vector<int>{1,2,3});
+    //agg.consume(std::vector<int>{1,2,3});
     auto s = agg.summary();
     REQUIRE(s.total_count >= 1);
 

@@ -1,7 +1,9 @@
 #include <iostream>
 #include "app/Options.hpp"
+#include "app/Options.cpp"
 #include "io/ReaderCSV.hpp"
 #include "sim/Simulator.hpp"
+#include "sim/Simulator.cpp"
 #include "sim/SeededRNG.hpp"
 #include "sim/Clock.hpp"
 #include "core/Aggregator.hpp"
@@ -17,7 +19,12 @@ int main(int argc, char** argv) {
     }
 
     // Aggregator now has a default window size; you can override if you want, e.g. Aggregator agg{5};
-    core::Aggregator agg;
+
+
+    core::Aggregator agg(1);
+
+
+
     if (opt.reserve_rows > 0) {
         agg.reserve(opt.reserve_rows);
     }
