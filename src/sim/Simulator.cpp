@@ -1,5 +1,8 @@
-#define _LIBCPP_ENABLE_CXX20_CHRONO
+//#define _LIBCPP_ENABLE_CXX20_CHRONO
 #include <chrono>
+#include <fstream>
+#include <vector>
+#include <string>
 
 #include "Simulator.hpp"
 
@@ -20,8 +23,13 @@ namespace sim{
         profile_ = profile;
         running_ = true;
 
-        last_noise_db_ = 25.0;
-        last_pm25_ = 20.0;
+        double last_pm25_glebe_     = 20.0;
+        double last_pm25_downtown_  = 20.0;
+        double last_pm25_byward_    = 20.0;
+
+        double last_noise_glebe_    = 50.0;
+        double last_noise_downtown_ = 50.0;
+        double last_noise_byward_   = 50.0;
     }
 
     void Simulator::pause(){
@@ -71,6 +79,7 @@ namespace sim{
         return output;
     }
 
+    //Simulates one step, after current step
     std::vector<SensorRecord> Simulator::next_step(){
         if (!running_){
             return{};
@@ -79,6 +88,7 @@ namespace sim{
         return output;
     }
     
+    //Generates x steps of data
     std::vector<SensorRecord> Simulator::next_batch(int steps){
         std::vector<SensorRecord> output;
         output.reserve(steps * 9);
@@ -91,7 +101,7 @@ namespace sim{
         return output;
     }
 
-    //Will Simulate a full day of data, will be 1 day, regardless of clock step_size
+    //Will Generate a full day of data
     std::vector<SensorRecord> Simulator::generate_day(SimulatorProfile profile){
         using namespace std::chrono;
         std::vector<SensorRecord> output;
@@ -108,6 +118,7 @@ namespace sim{
         return output;
     }
 
+    //Will generate a full month of data
     std::vector<SensorRecord> Simulator::generate_month(SimulatorProfile profile, int month){
         using namespace std::chrono;
 
@@ -136,8 +147,13 @@ namespace sim{
             system_clock::time_point midnight = system_clock::from_time_t(tt);
 
             clock_ = Clock(midnight, 60);
-            last_noise_db_ = 55.0;
-            last_pm25_     = 20.0;
+            last_pm25_glebe_     = 20.0;
+            last_pm25_downtown_  = 20.0;
+            last_pm25_byward_    = 20.0;
+
+            last_noise_glebe_    = 50.0;
+            last_noise_downtown_ = 50.0;
+            last_noise_byward_   = 50.0;
 
             auto records = generate_day(profile);
             output.insert(output.end(), records.begin(), records.end());
@@ -145,6 +161,7 @@ namespace sim{
     return output;
 }
 
+    //Generates 12 months of data
     std::vector<SensorRecord> Simulator::generate_year(SimulatorProfile profile){
         std::vector<SensorRecord> output;
         output.reserve(12 * 403000);
@@ -159,10 +176,64 @@ namespace sim{
         return output;
     }
     
-
-
-
     
+
+    void write_csv_files(const std::vector<SensorRecord>& records, const std::string& traffic_file, const std::string& air_file, const std::string& noise_file){
+        std::ofstream traffic_out(traffic_file);
+        std::ofstream air_out(air_file);
+        std::ofstream noise_out(noise_file);
+
+        if (!traffic_out.is_open() || !air_out.is_open() || !noise_out.is_open())
+            throw std::runtime_error("Failed to open one or more CSV output files.");
+
+        // Write headers
+        traffic_out << "timestamp,sensor_id,zone_id,speed,flow\n";
+        air_out     << "timestamp,sensor_id,zone_id,pm25,pm10\n";
+        noise_out   << "timestamp,sensor_id,zone_id,db\n";
+
+        for (const auto& r : records)
+        {
+
+            if (r.speed.has_value() || r.flow.has_value())
+            {
+                traffic_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << (r.speed.has_value() ? std::to_string(*r.speed) : "") << ","
+                    << (r.flow.has_value()  ? std::to_string(*r.flow)  : "")
+                    << "\n";
+            }
+
+            if (r.pm25.has_value() || r.pm10.has_value())
+            {
+                air_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << (r.pm25.has_value() ? std::to_string(*r.pm25) : "") << ","
+                    << (r.pm10.has_value() ? std::to_string(*r.pm10) : "")
+                    << "\n";
+            }
+
+            if (r.db.has_value())
+            {
+                noise_out
+                    << r.ts << ","
+                    << r.sensor_id << ","
+                    << r.zone_id << ","
+                    << *r.db
+                    << "\n";
+            }
+        }
+    }
+
+
+
+
+
+
+    //Generates traffic data, values will increase/decrease in 'random' increments (deterministically) based on the previous value
     SensorRecord Simulator::generate_traffic_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
         SensorRecord output{};
         output.ts = ts;
@@ -199,15 +270,15 @@ namespace sim{
                 switch(zone_id){
                     // Downtown rush hour slows traffic more than Byward and Glebe, Byward slows less than Downtown but more than Glebe, etc
                     case 1: rush_slowdown_min = -25; rush_slowdown_max = -12; break;
-                    case 2: rush_slowdown_min = -20; rush_slowdown_max = -10; break; 
-                    case 3: rush_slowdown_min = -15; rush_slowdown_max = -8;  break; 
+                    case 2: rush_slowdown_min = -20; rush_slowdown_max = -8; break; 
+                    case 3: rush_slowdown_min = -17; rush_slowdown_max = -8;  break; 
                 }
             } else if (hour >= 16 && hour <= 18) {       // PM rush
                 switch(zone_id){
                     // Downtown rush hour slows traffic more than Byward and Glebe, Byward slows less than Downtown but more than Glebe, etc
-                    case 1: rush_slowdown_min = -20; rush_slowdown_max = -10; break;
-                    case 2: rush_slowdown_min = -15; rush_slowdown_max = -8; break; 
-                    case 3: rush_slowdown_min = -10; rush_slowdown_max = -5;  break; 
+                    case 1: rush_slowdown_min = -25; rush_slowdown_max = -12; break;
+                    case 2: rush_slowdown_min = -20; rush_slowdown_max = -8; break; 
+                    case 3: rush_slowdown_min = -17; rush_slowdown_max = -8;  break; 
                 }
             }
             speed += rng_.uniform(rush_slowdown_min, rush_slowdown_max);
@@ -232,6 +303,7 @@ namespace sim{
         return output;
     }
 
+    //Generates air data, values will increase/decrease in 'random' increments (deterministically) based on the previous value
     SensorRecord Simulator::generate_air_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
         SensorRecord output{};
         output.ts = ts;
@@ -240,25 +312,44 @@ namespace sim{
 
         int hour = hour_of_day(ts);
 
-        double min_step = -1.5;
-        double max_step = 1.5;
+        double min_step = -1.9;
+        double max_step =  1.5;
 
         if (hour >= 7 && hour <= 9) {
-            min_step = -1.0;
-            max_step = 5.0; // morning pollution bump
+            min_step = -1.4;
+            max_step = +1.8;
         }
 
+        else if (hour >= 10 && hour <= 16) {
+            min_step = -3.9;
+            max_step = +0.3;
+        }
+
+        else if (hour >= 1 && hour <= 5) {
+            min_step = -2.9;
+            max_step = +0.3;
+        }
+        
+        double& pmref = (zone_id == 1) ? last_pm25_downtown_ :
+                        (zone_id == 2) ? last_pm25_glebe_ :
+                                         last_pm25_byward_;
+
+
         double delta = rng_.uniform(min_step, max_step);
-        last_pm25_ += delta;
+        pmref += delta;
 
-        last_pm25_ = std::clamp(last_pm25_, 5.0, 100.0);
-        double pm10 = last_pm25_ * rng_.uniform(1.3, 1.8);
+        pmref = std::clamp(pmref, 5.0, 75.0);
 
-        output.pm25 = last_pm25_;
+        double pm10 = pmref * rng_.uniform(1.3, 1.8);
+
+        output.pm25 = pmref;
         output.pm10 = pm10;
+
         return output;
     }
 
+
+    //Generates noise data, values will increase/decrease in 'random' increments (deterministically) based on the previous value
     SensorRecord Simulator::generate_noise_record(std::chrono::system_clock::time_point ts, int zone_id, const std::string& sensor_id, SimulatorProfile profile){
         SensorRecord output{};
         output.ts = ts;
@@ -266,7 +357,7 @@ namespace sim{
         output.zone_id = zone_id;
 
         int hour = hour_of_day(ts);
-        double min_step = -2.0;
+        double min_step = -2.75;
         double max_step = 2.5;
 
         if (hour >= 7 && hour <= 9) {
@@ -279,10 +370,14 @@ namespace sim{
             max_step =  7.0;     // nightlife effect
         }
 
+        double& dbref = (zone_id == 1) ? last_noise_downtown_ :
+                        (zone_id == 2) ? last_noise_glebe_ :
+                                         last_noise_byward_;
+
         double delta = rng_.uniform(min_step, max_step);
-        last_noise_db_ += delta;
-        last_noise_db_ = std::clamp(last_noise_db_, 35.0, 95.0);
-        output.db = last_noise_db_;
+        dbref += delta;
+        dbref = std::clamp(dbref, 35.0, 95.0);
+        output.db = dbref;
         return output;
     }
-}
+}//namespace sim
