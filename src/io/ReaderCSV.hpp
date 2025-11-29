@@ -44,6 +44,7 @@ namespace io {
 
                     auto cols = split(line);
                     if (cols.empty()) {
+                        +malformed_count_;
                         continue;
                     }
 
@@ -89,6 +90,7 @@ namespace io {
         std::size_t current_index_{0};
         std::ifstream current_;
         bool any_file_opened_{false};
+        
 
         // Lower-cased column name -> column index
         std::unordered_map<std::string, std::size_t> header_index_;
@@ -96,6 +98,11 @@ namespace io {
         // Zone string -> stable small int id
         std::unordered_map<std::string, int> zone_map_;
         int next_zone_id_{1};
+
+
+        std::size_t malformed_count_{ 0 };
+    public:
+        std::size_t malformed_count() const noexcept { return malformed_count_; }
 
         // Open current file (or next) and read header.
         // Returns true if a stream is open and ready, false if exhausted.
@@ -251,6 +258,7 @@ namespace io {
             return zone_id_for(*opt);
         }
 
+		// Helper: parse a double column by (case-insensitive) name.
         std::optional<double> parse_double(
             const std::vector<std::string>& cols,
             const std::string& name) const
@@ -268,9 +276,13 @@ namespace io {
             try {
                 std::size_t pos = 0;
                 double v = std::stod(s, &pos);
-                (void)pos;
+                if (pos == 0) {
+                    // nothing parsed at all → malformed numeric field
+                    return std::nullopt;
+                }
                 return v;
-            } catch (...) {
+            }
+            catch (...) {
                 return std::nullopt;
             }
         }

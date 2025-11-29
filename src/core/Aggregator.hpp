@@ -1,18 +1,35 @@
 #pragma once
 #include <unordered_map>
 #include <mutex>
-#include <type_traits>
-#include <iterator>
+#include <vector>
+#include <algorithm>
 #include <chrono>
+
 #include "Window.hpp"
+#include "../model/SensorRecord.hpp"
+#include "../model/SensorView.hpp"
 
 namespace core {
 
     // Public summary contract used by tests.
     struct Summary {
         int total_count{ 0 };
-        std::unordered_map<int, int> by_zone; // zone_id -> count
+        // per-zone count within the current time window
+        std::unordered_map<int, int> by_zone;
     };
+
+    // Trait: what counts as a "sensor row" for Aggregator::consume
+    template <typename T>
+    struct is_sensor_row : std::false_type {};
+
+    template <>
+    struct is_sensor_row<model::SensorRecord> : std::true_type {};
+
+    template <>
+    struct is_sensor_row<model::SensorView> : std::true_type {};
+
+    template <typename T>
+    inline constexpr bool is_sensor_row_v = is_sensor_row<T>::value;
 
     class Aggregator {
     public:
@@ -20,83 +37,56 @@ namespace core {
             : window_minutes_(window_minutes) {
         }
 
-        // Generic consume: works for SensorRecord ranges and also for simple types
-        // (tests call consume(std::vector<int>{...})).
+        // Range-based ingest (only SensorRecord / SensorView ranges)
         template <typename Range>
         void consume(const Range& r) {
             using std::begin;
             using std::end;
 
-            auto it = begin(r);
-            auto it_end = end(r);
-            if (it == it_end) return;
+            auto first = begin(r);
+            auto last = end(r);
+            if (first == last) return;
+
+            using Value = std::decay_t<decltype(*first)>;
+            static_assert(
+                is_sensor_row_v<Value>,
+                "Aggregator::consume only accepts SensorRecord / SensorView ranges"
+                );
 
             std::scoped_lock lock(mutex_);
 
-            using Value = std::decay_t<decltype(*it)>;
-
-            // Real logic only for SensorRecord ranges
             if constexpr (std::is_same_v<Value, model::SensorRecord>) {
-                for (auto cur = it; cur != it_end; ++cur) {
-                    window_.records.push_back(*cur);
+                append_records_unlocked(first, last);
+            }
+            else {
+                // SensorView path: promote to owning records
+                std::vector<model::SensorRecord> promoted;
+                promoted.reserve(std::distance(first, last));
+                for (auto it = first; it != last; ++it) {
+                    // Any reasonable promotion API is fine; this branch will
+                    // only be instantiated if you actually call consume()
+                    // with SensorView ranges.
+                    promoted.push_back(it->to_record());
                 }
-
-                // Time-based eviction: keep only records within last window_minutes_
-                if (!window_.records.empty() && window_minutes_ > 0) {
-                    const auto max_ts = window_.records.back().ts;
-                    const auto cutoff =
-                        max_ts - std::chrono::minutes(window_minutes_);
-
-                    auto erase_it = std::remove_if(
-                        window_.records.begin(),
-                        window_.records.end(),
-                        [&](const model::SensorRecord& rec) {
-                            return rec.ts < cutoff;
-                        }
-                    );
-                    window_.records.erase(erase_it, window_.records.end());
-                }
-
-                // Recompute per-zone counts from current window
-                recompute_by_zone_unlocked();
+                append_records_unlocked(promoted.begin(), promoted.end());
             }
 
-            // total_count tracks all ingested elements (any Range value type)
-            const int added =
-                static_cast<int>(std::distance(it, it_end));
-            total_count_ += added;
-
-            window_archive.push_back(window_);
+            total_count_ += static_cast<int>(std::distance(first, last));
         }
 
-        // Convenient function that uilizes consume() function and then filters the current
-        // window's records by zone. 
-        template <typename Range>
-        void consume_by_zone(const Range& r, int zone_id_) {
-            consume(r);
-            int no_removed = 0;
+        // Convenience overload for a single SensorRecord
+        void consume(const model::SensorRecord& rec) {
+            std::array<model::SensorRecord, 1> one{ rec };
+            consume(one);
+        }
 
+        // Optional reserve hook used by main.cpp
+        void reserve(std::size_t n) {
             std::scoped_lock lock(mutex_);
-            auto erase_it = std::remove_if(
-                window_.records.begin(),
-                window_.records.end(),
-                [&](const model::SensorRecord& rec) {
-                    if (rec.zone_id != zone_id_) {
-                        ++no_removed;
-                        return true;
-                    }
-                    return false;
-                }
-            );
-            window_.records.erase(erase_it, window_.records.end());
-            total_count_ -= no_removed;
-
-            window_archive.push_back(window_);
+            window_.records.reserve(n);
         }
 
         const Window& current_window_view() const {
-            // NOTE: read-only snapshot; callers should avoid using this
-            // concurrently with writes unless they provide external sync.
             return window_;
         }
 
@@ -108,75 +98,31 @@ namespace core {
             return s;
         }
 
-        // Computes the mean speed, flow, pm25, pm10, and db by each zone in a SensorRecord range.
-        // A hashmap is returned, where each zone has a corresponding hashmap containing its averaged
-        // metrics.
-        using MetricsMap = std::unordered_map<std::string, double>;
-        // CountMap to help compute denominators, in order to calculate the mean.
-        using CountMap = std::unordered_map<std::string, int>;
+    private:
+        template <typename It>
+        void append_records_unlocked(It first, It last) {
+            if (first == last) return;
 
-        template <typename Range>
-        std::unordered_map<int, MetricsMap> compute_means(const Range& r) {
+            window_.records.insert(window_.records.end(), first, last);
 
-            auto it = std::begin(r);
-            auto it_end = std::end(r);
-            if (it == it_end) return {};
+            // Time-based eviction: keep only records in the last window_minutes_
+            if (!window_.records.empty() && window_minutes_ > 0) {
+                const auto max_ts = window_.records.back().ts;
+                const auto cutoff =
+                    max_ts - std::chrono::minutes(window_minutes_);
 
-            std::unordered_map<int, MetricsMap> result;
-            std::unordered_map<int, CountMap> counter;
-
-            using Value = std::decay_t<decltype(*it)>;
-            if constexpr (std::is_same_v<Value, model::SensorRecord>) {
-
-                for (auto cur=it; cur != it_end; cur++) {
-                    model::SensorRecord rec = *cur;
-                    if (rec.speed.has_value()) {
-                        result[rec.zone_id]["speed"] += rec.speed.value(); counter[rec.zone_id]["speed"]++;
-                    }
-                    if (rec.flow.has_value()) {
-                        result[rec.zone_id]["flow"] += rec.flow.value(); counter[rec.zone_id]["flow"]++;
-                    }
-                    if (rec.pm25.has_value()) {
-                        result[rec.zone_id]["pm25"] += rec.pm25.value(); counter[rec.zone_id]["pm25"]++;
-                    }
-                    if (rec.pm10.has_value()) {
-                        result[rec.zone_id]["pm10"] += rec.pm10.value(); counter[rec.zone_id]["pm10"]++;
-                    }
-                    if (rec.db.has_value()) {
-                        result[rec.zone_id]["db"] += rec.db.value(); counter[rec.zone_id]["db"]++;
-                    }
-                }
+                auto erase_it = std::remove_if(
+                    window_.records.begin(),
+                    window_.records.end(),
+                    [&](const model::SensorRecord& r) {
+                        return r.ts < cutoff;
+                    });
+                window_.records.erase(erase_it, window_.records.end());
             }
-            // Calculate means in each zone
-            for (const auto& [zone, metrics] : counter) {
-                for (const auto& [metric, denominator] : metrics) {
 
-                    if (denominator != 0) {
-                        double& numerator = result[zone][metric];
-                        numerator = numerator / static_cast<double>(denominator);
-                    }
-                }
-            }
-            return result;
+            recompute_by_zone_unlocked();
         }
 
-        // Calculate mean values (speed, flow, pm25, pm10, db) across all windows.
-        // NOTE: You can try passing in 'window_archive' variable in this
-        std::unordered_map<int,MetricsMap> calculate_rolling_means(
-            const std::vector<Window>& windows) {
-                
-                std::vector<model::SensorRecord> combined_recs;
-                for (const auto& win : windows) {
-                    std::vector<model::SensorRecord> recs = win.records;
-
-                    combined_recs.reserve(recs.size());
-                    combined_recs.insert(combined_recs.end(),recs.begin(),recs.end());
-                }
-                return compute_means(combined_recs);
-            }
-
-        
-    private:
         void recompute_by_zone_unlocked() {
             by_zone_.clear();
             for (const auto& rec : window_.records) {
@@ -186,10 +132,9 @@ namespace core {
 
         Window window_;
         int window_minutes_{ 0 };
-        std::vector<Window> window_archive;
 
-        int total_count_{ 0 };                       // all seen elements
-        std::unordered_map<int, int> by_zone_;    // counts in current window
+        int total_count_{ 0 };
+        std::unordered_map<int, int> by_zone_;
 
         mutable std::mutex mutex_;
     };
