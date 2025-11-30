@@ -251,7 +251,7 @@ namespace sim {
 
     //Given the analysed data for a year, calls the above function on each month
     void print_year_summary(const sim::YearlySummary& ys) {
-        for (int i = 0; i < ys.months.size(); i++) {
+        for (std::size_t i = 0; i < ys.months.size(); i++) {
             const auto& m = ys.months[i];
             std::cout << MONTH_NAMES[i] << ":\n";
             std::cout << "  Air flags:     " << m.air_days << "\n";

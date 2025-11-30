@@ -4,6 +4,9 @@
 #include "io/ReaderCSV.hpp"
 #include "sim/Simulator.hpp"
 #include "sim/Simulator.cpp"
+#include "sim/PatternAnalytics.hpp"
+#include "sim/PatternAnalytics.cpp"
+#include "sim/Criteria.hpp"
 #include "sim/SeededRNG.hpp"
 #include "sim/Clock.hpp"
 #include "core/Aggregator.hpp"
@@ -19,8 +22,6 @@ int main(int argc, char** argv) {
     }
 
     // Aggregator now has a default window size; you can override if you want, e.g. Aggregator agg{5};
-
-
     core::Aggregator agg(1);
 
 
@@ -57,35 +58,44 @@ int main(int argc, char** argv) {
     }
     else { // Simulator mode
     using namespace std::chrono;
-
-    // 1. Determine simulation start time
     system_clock::time_point start;
-
     if (opt.from) {
         start = *opt.from;
     } else {
         // fallback default start: now
         start = system_clock::now();
     }
-
-    // 2. Create clock with configured step (seconds per simulated minute)
     int step_seconds = 60;  // you already use 60 in Simulator
     sim::Clock clock{ start, step_seconds };
 
-    // 3. Create RNG and simulator
     sim::SeededRNG rng{ opt.sim_seed };
     sim::Simulator sim{ clock, rng };
-    sim.start(sim::SimulatorProfile::Weekday);
+    sim::Criteria criteria;
+    if (opt.run_patterns){
+        if (opt.patterns_month == 0){
+            auto year_data = sim.generate_year(sim::SimulatorProfile::Weekday);
+            auto year_data_aggregated = sim::analyse_year(year_data, criteria);
+            sim::print_year_summary(year_data_aggregated);
+        }else{
+            auto month_data = sim.generate_month(sim::SimulatorProfile::Weekday, opt.patterns_month);
+            auto month_data_aggregated = sim::analyse_month(month_data, criteria);
+            sim::print_month_summary(month_data_aggregated);
+        }
+    }else{
+        // 1. Determine simulation start time
+        sim.start(sim::SimulatorProfile::Weekday);
 
-    // 4. Compute end time using --hours
-    system_clock::time_point end = start + hours(opt.sim_hours);
+        // 4. Compute end time using --hours
+        system_clock::time_point end = start + hours(opt.sim_hours);
 
-    // 5. Simulation loop (will stop correctly now)
-    while (clock.now() < end) {
-        auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
-        for (auto& rec : batch)
-            accept_record(rec);
+        // 5. Simulation loop (will stop correctly now)
+        while (clock.now() < end) {
+            auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
+            for (auto& rec : batch)
+                accept_record(rec);
+        }       
     }
+    
 }
     // Obtain summary for Role B exporters.
     auto sum = agg.summary();

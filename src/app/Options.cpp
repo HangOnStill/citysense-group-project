@@ -85,6 +85,20 @@ namespace app {
                 opt.sim_hours = std::stoi(need_value("--hours"));
                 if (opt.sim_hours <= 0)
                     throw std::runtime_error("sim hours must be > 0");
+            }else if (arg == "--patterns") {
+                opt.run_patterns = true;
+                // Optional month argument
+                // If the next token is NOT a flag and is numeric → treat as month
+                if (i + 1 < argc) {
+                    std::string next = argv[i + 1];
+                    if (!next.empty() && std::isdigit(next[0])) {
+                        int m = std::stoi(next);
+                        if (m < 1 || m > 12)
+                            throw std::runtime_error("Month number for --patterns must be 1–12");
+                        opt.patterns_month = m;
+                        ++i;
+                    }
+                }
             }
             else {
                 throw std::runtime_error("Unknown argument: " + arg);

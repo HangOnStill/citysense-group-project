@@ -11,7 +11,7 @@
 using namespace std::chrono;
 
 int main(){
-system_clock::time_point start{seconds{0}};
+    system_clock::time_point start{seconds{0}};
     sim::Clock clock{start, 60};
     sim::SeededRNG rng{1234};
     sim::Simulator sim{clock, rng};
