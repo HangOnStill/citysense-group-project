@@ -17,6 +17,7 @@ namespace app {
         std::size_t batch_size = 1000;
         std::size_t reserve_rows = 0;
         int sim_seed = 1234;
+        int sim_hours = 24;
         // paths for outputs could go here too
     };
 

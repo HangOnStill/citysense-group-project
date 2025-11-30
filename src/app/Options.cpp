@@ -81,6 +81,10 @@ namespace app {
             }
             else if (arg == "--seed") {
                 opt.sim_seed = std::stoi(need_value("--seed"));
+            }else if (arg == "--hours") {
+                opt.sim_hours = std::stoi(need_value("--hours"));
+                if (opt.sim_hours <= 0)
+                    throw std::runtime_error("sim hours must be > 0");
             }
             else {
                 throw std::runtime_error("Unknown argument: " + arg);

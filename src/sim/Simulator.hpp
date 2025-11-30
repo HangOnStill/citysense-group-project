@@ -15,8 +15,9 @@
 
 namespace sim{
 class Simulator{
+    Clock& clock_;
     public:
-        Simulator(Clock clock, SeededRNG rng);
+        Simulator(Clock& clock, SeededRNG rng);
 
         void start(SimulatorProfile profile);
         void pause();
@@ -38,7 +39,6 @@ class Simulator{
 
         
     private:
-        Clock clock_;
         SeededRNG rng_;
 
         double last_pm25_glebe_     = 20.0;

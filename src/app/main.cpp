@@ -55,23 +55,38 @@ int main(int argc, char** argv) {
             }
         }
     }
-    else { // Simulator
-        using namespace std::chrono;
-        system_clock::time_point start{ seconds{0} };
-        sim::Clock      clock{ start, 60 };         // 60s step
-        sim::SeededRNG  rng{ opt.sim_seed };
-        sim::Simulator  sim{ clock, rng };
-        sim.start(sim::SimulatorProfile::Weekday);  // can be made configurable later
+    else { // Simulator mode
+    using namespace std::chrono;
 
-        while (true) {
-            auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
-            if (batch.empty()) break;
-            for (auto& rec : batch) {
-                accept_record(rec);
-            }
-        }
+    // 1. Determine simulation start time
+    system_clock::time_point start;
+
+    if (opt.from) {
+        start = *opt.from;
+    } else {
+        // fallback default start: now
+        start = system_clock::now();
     }
 
+    // 2. Create clock with configured step (seconds per simulated minute)
+    int step_seconds = 60;  // you already use 60 in Simulator
+    sim::Clock clock{ start, step_seconds };
+
+    // 3. Create RNG and simulator
+    sim::SeededRNG rng{ opt.sim_seed };
+    sim::Simulator sim{ clock, rng };
+    sim.start(sim::SimulatorProfile::Weekday);
+
+    // 4. Compute end time using --hours
+    system_clock::time_point end = start + hours(opt.sim_hours);
+
+    // 5. Simulation loop (will stop correctly now)
+    while (clock.now() < end) {
+        auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
+        for (auto& rec : batch)
+            accept_record(rec);
+    }
+}
     // Obtain summary for Role B exporters.
     auto sum = agg.summary();
     (void)sum; // avoid unused-variable warning until exporters are wired

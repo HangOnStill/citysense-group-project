@@ -16,7 +16,7 @@ namespace sim{
         int h = static_cast<int>(hrs % 24);
         return (h < 0) ? h + 24 : h;
     }
-    Simulator::Simulator(Clock clock, SeededRNG rng) : clock_(clock), rng_(rng){}
+    Simulator::Simulator(Clock& clock, SeededRNG rng) : clock_(clock), rng_(rng){}
 
     void Simulator::start(SimulatorProfile profile){
         profile_ = profile;
