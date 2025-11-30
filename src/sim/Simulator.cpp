@@ -30,17 +30,21 @@ namespace sim {
         }
     } // namespace
 
+    // ------------------------------------------------------------------
+    // ctor / basic control
+    // ------------------------------------------------------------------
+
     Simulator::Simulator(Clock clock, SeededRNG rng)
         : clock_(clock),
         rng_(rng),
-        running_(false),
-        profile_(SimulatorProfile::Weekday),
         last_pm25_glebe_(20.0),
         last_pm25_downtown_(20.0),
         last_pm25_byward_(20.0),
         last_noise_glebe_(50.0),
         last_noise_downtown_(50.0),
-        last_noise_byward_(50.0) {
+        last_noise_byward_(50.0),
+        running_(false),
+        profile_(SimulatorProfile::Weekday) {
     }
 
     void Simulator::start(SimulatorProfile profile) {
@@ -63,6 +67,74 @@ namespace sim {
     void Simulator::resume() {
         running_ = true;
     }
+
+    // ------------------------------------------------------------------
+    // State save / load (simple text format)
+    // ------------------------------------------------------------------
+
+    void Simulator::save_state(const std::string& path) const {
+        std::ofstream out(path);
+        if (!out.is_open()) {
+            throw std::runtime_error("Simulator::save_state: failed to open file '" + path + "'");
+        }
+
+        // Format (whitespace-separated, lines for readability only):
+        // running_int profile_int
+        // pm25_glebe pm25_downtown pm25_byward
+        // noise_glebe noise_downtown noise_byward
+        //
+        // Note: we do not serialize Clock or RNG here; they remain as-in ctor.
+
+        int running_int = running_ ? 1 : 0;
+        int profile_int = static_cast<int>(profile_);
+
+        out << running_int << " " << profile_int << "\n";
+        out << last_pm25_glebe_ << " "
+            << last_pm25_downtown_ << " "
+            << last_pm25_byward_ << "\n";
+        out << last_noise_glebe_ << " "
+            << last_noise_downtown_ << " "
+            << last_noise_byward_ << "\n";
+
+        if (!out) {
+            throw std::runtime_error("Simulator::save_state: write failed for '" + path + "'");
+        }
+    }
+
+    void Simulator::load_state(const std::string& path) {
+        std::ifstream in(path);
+        if (!in.is_open()) {
+            throw std::runtime_error("Simulator::load_state: failed to open file '" + path + "'");
+        }
+
+        int running_int = 0;
+        int profile_int = 0;
+        double pm25_glebe = 20.0;
+        double pm25_downtown = 20.0;
+        double pm25_byward = 20.0;
+        double noise_glebe = 50.0;
+        double noise_downtown = 50.0;
+        double noise_byward = 50.0;
+
+        if (!(in >> running_int >> profile_int
+            >> pm25_glebe >> pm25_downtown >> pm25_byward
+            >> noise_glebe >> noise_downtown >> noise_byward)) {
+            throw std::runtime_error("Simulator::load_state: invalid or corrupted state file '" + path + "'");
+        }
+
+        running_ = (running_int != 0);
+        profile_ = static_cast<SimulatorProfile>(profile_int);
+        last_pm25_glebe_ = pm25_glebe;
+        last_pm25_downtown_ = pm25_downtown;
+        last_pm25_byward_ = pm25_byward;
+        last_noise_glebe_ = noise_glebe;
+        last_noise_downtown_ = noise_downtown;
+        last_noise_byward_ = noise_byward;
+    }
+
+    // ------------------------------------------------------------------
+    // Generation API
+    // ------------------------------------------------------------------
 
     std::vector<SensorRecord> Simulator::generate_step(SimulatorProfile profile) {
         using namespace std::chrono;
@@ -155,7 +227,7 @@ namespace sim {
             days_in_month = 30;
         }
         else {
-            // February (ignore leap years for now, unless spec says otherwise)
+            // February (simple: ignore leap years)
             days_in_month = 28;
         }
 
@@ -207,6 +279,10 @@ namespace sim {
         return output;
     }
 
+    // ------------------------------------------------------------------
+    // CSV writer
+    // ------------------------------------------------------------------
+
     void write_csv_files(const std::vector<SensorRecord>& records,
         const std::string& traffic_file,
         const std::string& air_file,
@@ -216,7 +292,7 @@ namespace sim {
         std::ofstream noise_out(noise_file);
 
         if (!traffic_out.is_open() || !air_out.is_open() || !noise_out.is_open()) {
-            throw std::runtime_error("Failed to open one or more CSV output files.");
+            throw std::runtime_error("write_csv_files: failed to open one or more CSV output files.");
         }
 
         traffic_out << "timestamp,sensor_id,zone_id,speed,flow\n";
@@ -224,7 +300,7 @@ namespace sim {
         noise_out << "timestamp,sensor_id,zone_id,db\n";
 
         for (const auto& r : records) {
-            // Traffic (speed / flow present)
+            // Traffic
             if (r.speed.has_value() || r.flow.has_value()) {
                 traffic_out
                     << r.ts << ","
@@ -235,7 +311,7 @@ namespace sim {
                     << "\n";
             }
 
-            // Air (PM2.5 / PM10 present)
+            // Air
             if (r.pm25.has_value() || r.pm10.has_value()) {
                 air_out
                     << r.ts << ","
@@ -246,7 +322,7 @@ namespace sim {
                     << "\n";
             }
 
-            // Noise (dB present)
+            // Noise
             if (r.db.has_value()) {
                 noise_out
                     << r.ts << ","
@@ -257,6 +333,10 @@ namespace sim {
             }
         }
     }
+
+    // ------------------------------------------------------------------
+    // Helpers to simulate individual records
+    // ------------------------------------------------------------------
 
     SensorRecord Simulator::generate_traffic_record(std::chrono::system_clock::time_point ts,
         int zone_id,
@@ -273,16 +353,17 @@ namespace sim {
         double base_min;
         double base_max;
 
+        // 1 = Downtown, 2 = Glebe, 3 = Byward
         switch (zone_id) {
         case 1: // Downtown
             base_min = 35.0;
             base_max = 55.0;
             break;
-        case 2: // Byward (comment only; numeric IDs must be consistent with rest of pipeline)
+        case 2: // Glebe
             base_min = 30.0;
             base_max = 50.0;
             break;
-        case 3: // Glebe
+        case 3: // Byward
         default:
             base_min = 25.0;
             base_max = 45.0;
@@ -315,11 +396,11 @@ namespace sim {
             speed += rng_.uniform(rush_slowdown_min, rush_slowdown_max);
         }
         else {
-            // Weekend patterns: Byward late morning / late night slower
-            if (zone_id == 2 && hour >= 11 && hour <= 13) {
+            // Weekend patterns: Byward (3) late morning / late night slower, etc.
+            if (zone_id == 3 && hour >= 11 && hour <= 13) {
                 speed += rng_.uniform(-8.0, 0.0);
             }
-            if (zone_id == 2 && hour >= 20 && hour <= 23) {
+            if (zone_id == 3 && hour >= 20 && hour <= 23) {
                 speed += rng_.uniform(-12.0, -3.0);
             }
         }
@@ -346,7 +427,7 @@ namespace sim {
         int zone_id,
         const std::string& sensor_id,
         SimulatorProfile profile) {
-        (void)profile; // currently unused, but kept for future weekday/weekend differences
+        (void)profile; // currently unused
 
         SensorRecord output{};
         output.ts = ts;
