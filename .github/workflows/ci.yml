@@ -12,25 +12,28 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: ubuntu-22.04, compiler: gcc-13 }
-          - { os: ubuntu-22.04, compiler: clang-16 }
+          - { os: ubuntu-22.04, compiler: gcc }
+          - { os: ubuntu-22.04, compiler: clang }
           - { os: windows-2022, compiler: msvc-19 }
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up GCC
-        if: matrix.compiler == 'gcc-13'
+        if: matrix.compiler == 'gcc'
         run: |
           sudo apt-get update
-          sudo apt-get install -y g++-13
-          echo "CXX=g++-13" >> $GITHUB_ENV
+          sudo apt-get install -y g++
+          echo "CC=gcc"   >> $GITHUB_ENV
+          echo "CXX=g++"  >> $GITHUB_ENV
 
       - name: Set up Clang
-        if: matrix.compiler == 'clang-16'
+        if: matrix.compiler == 'clang'
         run: |
           sudo apt-get update
-          sudo apt-get install -y clang-16 lld-16
-          echo "CXX=clang++-16" >> $GITHUB_ENV
+          sudo apt-get install -y clang lld
+          echo "CC=clang"    >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
 
       - name: Cache CMake deps
         uses: actions/cache@v4
@@ -40,25 +43,34 @@ jobs:
 
       - name: Configure (public tests)
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCITYSENSE_WARN_AS_ERR=ON -DCITYSENSE_ENABLE_STRICT_TESTS=OFF
+
       - name: Build
         run: cmake --build build --config Release --parallel 4
+
       - name: Test (public)
         working-directory: build
         run: ctest --output-on-failure --timeout 90 -L "^((?!strict).)*$"
 
   autograder-strict:
-    name: ubuntu / clang-16 / strict
+    name: ubuntu / clang / strict
     runs-on: ubuntu-22.04
+
     steps:
       - uses: actions/checkout@v4
-      - run: |
+
+      - name: Set up Clang
+        run: |
           sudo apt-get update
-          sudo apt-get install -y clang-16 lld-16
-          echo "CXX=clang++-16" >> $GITHUB_ENV
+          sudo apt-get install -y clang lld
+          echo "CC=clang"    >> $GITHUB_ENV
+          echo "CXX=clang++" >> $GITHUB_ENV
+
       - name: Configure (strict)
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCITYSENSE_ENABLE_STRICT_TESTS=ON -DCITYSENSE_WARN_AS_ERR=ON
+
       - name: Build (strict)
         run: cmake --build build --parallel 4
+
       - name: Test (strict)
         working-directory: build
         run: ctest --output-on-failure --timeout 120 -L strict
