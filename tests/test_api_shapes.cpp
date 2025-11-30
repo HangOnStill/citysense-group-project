@@ -19,7 +19,15 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     std::vector<core::Finding> findings = d.detect(w);
 
     // Minimal consume/summary exercise
-    //agg.consume(std::vector<int>{1,2,3});
+    //agg.consume(std::vector<model::SensorRecord>{1,2,3});
+    model::SensorRecord s1{std::chrono::system_clock::now(),"A1",1,
+    1,1,1,1,1};
+    model::SensorRecord s2{std::chrono::system_clock::now(),"N1",1,
+    1,1,1,1,1};
+    model::SensorRecord s3{std::chrono::system_clock::now(),"T1",2,
+    1,1,1,1,1};
+
+    agg.consume(std::vector<model::SensorRecord>{s1,s2,s3});
     auto s = agg.summary();
     REQUIRE(s.total_count >= 1);
 
