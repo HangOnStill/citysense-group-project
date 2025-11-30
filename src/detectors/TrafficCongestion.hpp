@@ -47,7 +47,6 @@ public:
                 current_streak = 0; current_end++; current_start = current_end; 
             }
         }
-
         return findings;
     }
 
