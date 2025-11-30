@@ -61,6 +61,9 @@ add_executable(citysense_tests
 )
 target_link_libraries(citysense_tests PRIVATE citysense_lib Catch2::Catch2WithMain)
 apply_warnings(citysense_tests)
+
+target_compile_definitions(citysense_tests PRIVATE TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+
 include(CTest)
 include(Catch)
 catch_discover_tests(citysense_tests

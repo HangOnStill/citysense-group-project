@@ -31,7 +31,8 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     auto s = agg.summary();
     REQUIRE(s.total_count >= 1);
 
-    io::ReaderCSV reader({ "data/air.csv" });
+    //io::ReaderCSV reader({ "data/air.csv" });
+    io::ReaderCSV reader({ TEST_DATA_DIR "/air.csv" });
     auto batch = reader.next_batch(10);
     REQUIRE((batch.size() > 0 || batch.empty()));
 }
