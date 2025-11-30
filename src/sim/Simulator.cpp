@@ -141,7 +141,7 @@ namespace sim{
             local.tm_mday = day;
             local.tm_hour = 0;
 
-            std::time_t tt = _mkgmtime(&local);
+            std::time_t tt = timegm(&local);
             system_clock::time_point midnight = system_clock::from_time_t(tt);
 
             clock_ = Clock(midnight, 60);

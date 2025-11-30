@@ -18,7 +18,7 @@ namespace {
         tm.tm_min = std::stoi(s.substr(14, 2));
         tm.tm_sec = 0;
 
-        std::time_t tt = _mkgmtime(&tm);
+        std::time_t tt = timegm(&tm);
         return std::chrono::system_clock::from_time_t(tt);
     }
 
