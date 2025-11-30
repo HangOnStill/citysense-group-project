@@ -125,10 +125,16 @@ namespace io {
 
                 // Try a few reasonable candidate paths.
                 std::vector<string> candidates;
-                candidates.push_back(raw);                      // as passed
-                candidates.push_back("../" + raw);              // from build/ up one
-                candidates.push_back("data/" + filename);       // data/filename
-                candidates.push_back("../data/" + filename);    // ../data/filename
+                // As passed (may already be absolute or relative to source/build root)
+                candidates.push_back(raw);
+                // One level up
+                candidates.push_back("../" + raw);
+                // Two levels up (important for ctest working dir: build/debug)
+                candidates.push_back("../../" + raw);
+                // Common project layouts for data/ at repo root
+                candidates.push_back("data/" + filename);
+                candidates.push_back("../data/" + filename);
+                candidates.push_back("../../data/" + filename);
 
                 bool opened = false;
                 for (const auto& path : candidates) {
@@ -168,6 +174,7 @@ namespace io {
 
             return current_.is_open();
         }
+
 
         void parse_header(const std::string& line) {
             header_index_.clear();
