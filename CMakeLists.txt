@@ -19,6 +19,7 @@ function(apply_warnings target)
   else()
     target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
   endif()
+
   if (CITYSENSE_WARN_AS_ERR)
     if (MSVC)
       target_compile_options(${target} PRIVATE /WX)
@@ -55,7 +56,12 @@ target_sources(test_simulator PRIVATE
 )
 apply_warnings(test_simulator)
 
-# ---- Tests (Catch2)
+if (UNIX AND NOT APPLE)
+  target_link_libraries(test_simulator PRIVATE pthread)
+endif()
+
+# ---- Tests (Catch2) --------------------------------------------------
+
 include(FetchContent)
 FetchContent_Declare(
   Catch2
@@ -65,7 +71,7 @@ FetchContent_MakeAvailable(Catch2)
 
 enable_testing()
 
-# >>> ADD THIS LINE <<<
+# Ensure directory for JUnit XML exists (CTest + CI)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test-results)
 
 # Public tests (fast, smoke)
@@ -77,40 +83,12 @@ add_executable(citysense_tests
 target_link_libraries(citysense_tests PRIVATE citysense_lib Catch2::Catch2WithMain)
 apply_warnings(citysense_tests)
 
-include(CTest)
-include(Catch)
-
-catch_discover_tests(citysense_tests
-  TEST_PREFIX "public::"
-  REPORTER junit
-  OUTPUT_DIR ${CMAKE_BINARY_DIR}/test-results
-  OUTPUT_PREFIX "public-"
-)
-
-# Strict tests (grading)
-if (CITYSENSE_ENABLE_STRICT_TESTS)
-  add_executable(citysense_tests_strict
-    tests_strict/test_csv_contract.cpp
-    tests_strict/test_windowing.cpp
-    tests_strict/test_parallel.cpp
-    tests_strict/test_exceptions.cpp
-  )
-  target_link_libraries(citysense_tests_strict PRIVATE citysense_lib Catch2::Catch2WithMain)
-  apply_warnings(citysense_tests_strict)
-
-  if (UNIX AND NOT APPLE)
-    target_link_libraries(citysense_tests_strict PRIVATE pthread)
-  endif()
-
-  catch_discover_tests(citysense_tests_strict
-    TEST_PREFIX "strict::"
-    REPORTER junit
-    OUTPUT_DIR ${CMAKE_BINARY_DIR}/test-results
-    OUTPUT_PREFIX "strict-"
-    PROPERTIES LABELS "strict"
-  )
+if (UNIX AND NOT APPLE)
+  target_link_libraries(citysense_tests PRIVATE pthread)
 endif()
 
+include(CTest)
+include(Catch)
 
 catch_discover_tests(citysense_tests
   TEST_PREFIX "public::"

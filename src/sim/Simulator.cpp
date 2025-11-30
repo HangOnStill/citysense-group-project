@@ -1,8 +1,10 @@
+#include <algorithm>   // std::clamp
 #include <chrono>
-#include <fstream>
-#include <vector>
-#include <string>
 #include <ctime>
+#include <fstream>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 #include "Simulator.hpp"
 
@@ -21,16 +23,24 @@ namespace sim {
         // Helper: hour of day (0–23) from system_clock::time_point
         inline int hour_of_day(std::chrono::system_clock::time_point ts) {
             using namespace std::chrono;
-            auto secs = duration_cast<seconds>(ts.time_since_epoch()).count(); // typically long long
+            auto secs = duration_cast<seconds>(ts.time_since_epoch()).count();
             auto hrs = secs / 3600;
             int h = static_cast<int>(hrs % 24);
             return (h < 0) ? h + 24 : h;
         }
-    }
+    } // namespace
 
     Simulator::Simulator(Clock clock, SeededRNG rng)
         : clock_(clock),
-        rng_(rng) {
+        rng_(rng),
+        running_(false),
+        profile_(SimulatorProfile::Weekday),
+        last_pm25_glebe_(20.0),
+        last_pm25_downtown_(20.0),
+        last_pm25_byward_(20.0),
+        last_noise_glebe_(50.0),
+        last_noise_downtown_(50.0),
+        last_noise_byward_(50.0) {
     }
 
     void Simulator::start(SimulatorProfile profile) {
@@ -108,7 +118,9 @@ namespace sim {
 
         for (int i = 0; i < steps; ++i) {
             auto step = next_step();
-            if (step.empty()) break;
+            if (step.empty()) {
+                break;
+            }
             output.insert(output.end(), step.begin(), step.end());
         }
         return output;
@@ -143,6 +155,7 @@ namespace sim {
             days_in_month = 30;
         }
         else {
+            // February (ignore leap years for now, unless spec says otherwise)
             days_in_month = 28;
         }
 
@@ -160,8 +173,10 @@ namespace sim {
             std::time_t tt = timegm_utc(&local);
             auto midnight = std::chrono::system_clock::from_time_t(tt);
 
+            // Reset clock to start of the day, step size 60 seconds
             clock_ = Clock(midnight, 60);
 
+            // Reset random-walk state per day
             last_pm25_glebe_ = 20.0;
             last_pm25_downtown_ = 20.0;
             last_pm25_byward_ = 20.0;
@@ -182,11 +197,11 @@ namespace sim {
         output.reserve(12 * 403000);
 
         for (int month = 1; month <= 12; ++month) {
-            auto month_record = generate_month(profile, month);
+            auto month_records = generate_month(profile, month);
             output.insert(
                 output.end(),
-                std::make_move_iterator(month_record.begin()),
-                std::make_move_iterator(month_record.end())
+                std::make_move_iterator(month_records.begin()),
+                std::make_move_iterator(month_records.end())
             );
         }
         return output;
@@ -200,14 +215,16 @@ namespace sim {
         std::ofstream air_out(air_file);
         std::ofstream noise_out(noise_file);
 
-        if (!traffic_out.is_open() || !air_out.is_open() || !noise_out.is_open())
+        if (!traffic_out.is_open() || !air_out.is_open() || !noise_out.is_open()) {
             throw std::runtime_error("Failed to open one or more CSV output files.");
+        }
 
         traffic_out << "timestamp,sensor_id,zone_id,speed,flow\n";
         air_out << "timestamp,sensor_id,zone_id,pm25,pm10\n";
         noise_out << "timestamp,sensor_id,zone_id,db\n";
 
         for (const auto& r : records) {
+            // Traffic (speed / flow present)
             if (r.speed.has_value() || r.flow.has_value()) {
                 traffic_out
                     << r.ts << ","
@@ -218,6 +235,7 @@ namespace sim {
                     << "\n";
             }
 
+            // Air (PM2.5 / PM10 present)
             if (r.pm25.has_value() || r.pm10.has_value()) {
                 air_out
                     << r.ts << ","
@@ -228,6 +246,7 @@ namespace sim {
                     << "\n";
             }
 
+            // Noise (dB present)
             if (r.db.has_value()) {
                 noise_out
                     << r.ts << ","
@@ -248,7 +267,7 @@ namespace sim {
         output.zone_id = zone_id;
         output.sensor_id = sensor_id;
 
-        int hour = hour_of_day(ts);
+        int  hour = hour_of_day(ts);
         bool is_weekday = (profile == SimulatorProfile::Weekday);
 
         double base_min;
@@ -259,7 +278,7 @@ namespace sim {
             base_min = 35.0;
             base_max = 55.0;
             break;
-        case 2: // Byward Market
+        case 2: // Byward (comment only; numeric IDs must be consistent with rest of pipeline)
             base_min = 30.0;
             base_max = 50.0;
             break;
@@ -276,24 +295,27 @@ namespace sim {
             double rush_slowdown_min = -10.0;
             double rush_slowdown_max = 10.0;
 
+            // Morning rush 7–9
             if (hour >= 7 && hour <= 9) {
                 switch (zone_id) {
                 case 1: rush_slowdown_min = -25.0; rush_slowdown_max = -12.0; break;
-                case 2: rush_slowdown_min = -20.0; rush_slowdown_max = -8.0; break;
-                case 3: rush_slowdown_min = -17.0; rush_slowdown_max = -8.0; break;
+                case 2: rush_slowdown_min = -20.0; rush_slowdown_max = -8.0;  break;
+                case 3: rush_slowdown_min = -17.0; rush_slowdown_max = -8.0;  break;
                 }
             }
+            // Evening rush 16–18
             else if (hour >= 16 && hour <= 18) {
                 switch (zone_id) {
                 case 1: rush_slowdown_min = -25.0; rush_slowdown_max = -12.0; break;
-                case 2: rush_slowdown_min = -20.0; rush_slowdown_max = -8.0; break;
-                case 3: rush_slowdown_min = -17.0; rush_slowdown_max = -8.0; break;
+                case 2: rush_slowdown_min = -20.0; rush_slowdown_max = -8.0;  break;
+                case 3: rush_slowdown_min = -17.0; rush_slowdown_max = -8.0;  break;
                 }
             }
 
             speed += rng_.uniform(rush_slowdown_min, rush_slowdown_max);
         }
         else {
+            // Weekend patterns: Byward late morning / late night slower
             if (zone_id == 2 && hour >= 11 && hour <= 13) {
                 speed += rng_.uniform(-8.0, 0.0);
             }
@@ -306,9 +328,15 @@ namespace sim {
         output.speed = speed;
 
         double flow;
-        if (speed < 20.0)      flow = rng_.uniform(20.0, 35.0);
-        else if (speed < 35.0) flow = rng_.uniform(15.0, 25.0);
-        else                   flow = rng_.uniform(8.0, 18.0);
+        if (speed < 20.0) {
+            flow = rng_.uniform(20.0, 35.0);
+        }
+        else if (speed < 35.0) {
+            flow = rng_.uniform(15.0, 25.0);
+        }
+        else {
+            flow = rng_.uniform(8.0, 18.0);
+        }
 
         output.flow = flow;
         return output;
@@ -318,7 +346,7 @@ namespace sim {
         int zone_id,
         const std::string& sensor_id,
         SimulatorProfile profile) {
-        (void)profile;
+        (void)profile; // currently unused, but kept for future weekday/weekend differences
 
         SensorRecord output{};
         output.ts = ts;
@@ -372,11 +400,13 @@ namespace sim {
         double min_step = -2.75;
         double max_step = 2.5;
 
+        // Morning peak: more noise, more positive drift
         if (hour >= 7 && hour <= 9) {
             min_step = -1.0;
             max_step = 5.0;
         }
 
+        // Weekend late evenings: loud nightlife
         if (profile == SimulatorProfile::Weekend && hour >= 20 && hour <= 23) {
             min_step = 0.0;
             max_step = 7.0;
