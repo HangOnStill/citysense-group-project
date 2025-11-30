@@ -1,12 +1,14 @@
+// src/app/main.cpp
 #include <iostream>
+#include <exception>
+
 #include "app/Options.hpp"
-#include "app/Options.cpp"
 #include "io/ReaderCSV.hpp"
 #include "sim/Simulator.hpp"
-#include "sim/Simulator.cpp"
 #include "sim/SeededRNG.hpp"
 #include "sim/Clock.hpp"
 #include "core/Aggregator.hpp"
+#include "model/SensorRecord.hpp"
 
 int main(int argc, char** argv) {
     app::Options opt;
@@ -18,13 +20,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Aggregator now has a default window size; you can override if you want, e.g. Aggregator agg{5};
-
-
-    core::Aggregator agg(1);
-
-
-
+    // 1-minute time window (you can tune this if needed)
+    core::Aggregator agg{ 1 };
     if (opt.reserve_rows > 0) {
         agg.reserve(opt.reserve_rows);
     }
@@ -55,13 +52,13 @@ int main(int argc, char** argv) {
             }
         }
     }
-    else { // Simulator
+    else {
         using namespace std::chrono;
         system_clock::time_point start{ seconds{0} };
-        sim::Clock      clock{ start, 60 };         // 60s step
-        sim::SeededRNG  rng{ opt.sim_seed };
-        sim::Simulator  sim{ clock, rng };
-        sim.start(sim::SimulatorProfile::Weekday);  // can be made configurable later
+        sim::Clock     clock{ start, 60 };           // 60s step
+        sim::SeededRNG rng{ opt.sim_seed };
+        sim::Simulator sim{ clock, rng };
+        sim.start(sim::SimulatorProfile::Weekday);   // could be made configurable
 
         while (true) {
             auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
@@ -72,9 +69,12 @@ int main(int argc, char** argv) {
         }
     }
 
-    // Obtain summary for Role B exporters.
     auto sum = agg.summary();
-    (void)sum; // avoid unused-variable warning until exporters are wired
+    std::cout << "Total ingested rows: " << sum.total_count << "\n";
+    std::cout << "Per zone:\n";
+    for (auto& [zone, count] : sum.by_zone) {
+        std::cout << "  zone " << zone << ": " << count << "\n";
+    }
 
     return 0;
 }

@@ -1,11 +1,13 @@
+// src/core/Detector.hpp
 #pragma once
+#include <vector>
 
 namespace core {
 
-    struct Window; // match definition in Window.hpp
-    struct Finding;
+    struct Window;   // defined in Window.hpp
+    struct Finding;  // defined in Finding.hpp
 
-    // Minimal detector contract. Students can extend with return values or reports.
+    // Minimal detector contract.
     class Detector {
     public:
         virtual ~Detector() = default;

@@ -2,6 +2,7 @@
 #include <fstream>
 #include <vector>
 #include <string>
+#include <ctime>
 
 #include "Simulator.hpp"
 
@@ -9,6 +10,16 @@ namespace sim{
     using model::SensorRecord;
 
     //Helper Function - Used to simulate rush hours etc
+
+    namespace {
+        inline std::time_t timegm_utc(std::tm* tm) {
+#if defined(_WIN32)
+            return _mkgmtime(tm);   // MSVC / Windows
+#else
+            return timegm(tm);      // POSIX
+#endif
+        }
+    }
     static int hour_of_day(std::chrono::system_clock::time_point ts){
         using namespace std::chrono;
         auto secs = duration_cast<seconds>(ts.time_since_epoch()).count();
@@ -141,8 +152,9 @@ namespace sim{
             local.tm_mday = day;
             local.tm_hour = 0;
 
-            std::time_t tt = timegm(&local);
+            std::time_t tt = timegm_utc(&local);
             system_clock::time_point midnight = system_clock::from_time_t(tt);
+
 
             clock_ = Clock(midnight, 60);
             last_pm25_glebe_     = 20.0;
