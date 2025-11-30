@@ -1,4 +1,5 @@
 ﻿#pragma once
+
 #include <string>
 #include <vector>
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <initializer_list>
 
 #include "../model/SensorRecord.hpp"
 
@@ -64,7 +66,7 @@ namespace io {
                     // zone_id (string or code, header can be "zone_id" or "zone")
                     rec.zone_id = get_zone(cols, "zone_id");
 
-                    // family-specific numeric fields (optional)
+                    // family-specific numeric fields (optional, header-insensitive)
                     rec.speed = parse_double(cols, "speed");
                     rec.flow = parse_double(cols, "flow");
                     rec.pm25 = parse_double(cols, "pm25");
@@ -102,6 +104,10 @@ namespace io {
         int next_zone_id_{ 1 };
 
         std::size_t malformed_count_{ 0 };
+
+        // ---------------------------------------------------------------------
+        //  File handling + header parsing
+        // ---------------------------------------------------------------------
 
         // Open current file (or next) and read header.
         // Returns true if a stream is open and ready, false if exhausted.
@@ -176,12 +182,30 @@ namespace io {
             }
         }
 
+        // ---------------------------------------------------------------------
+        //  String utilities
+        // ---------------------------------------------------------------------
+
         // Lowercase helper
         static std::string to_lower(std::string s) {
             std::transform(
                 s.begin(), s.end(), s.begin(),
                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
             return s;
+        }
+
+        // Normalize a header key: lower-case, keep only [a-z0-9].
+        // This makes "PM2.5", "pm_25", "pm2_5", "PM-2.5" all normalize to "pm25".
+        static std::string normalize_key(std::string s) {
+            s = to_lower(std::move(s));
+            std::string out;
+            out.reserve(s.size());
+            for (unsigned char c : s) {
+                if (std::isalnum(c)) {
+                    out.push_back(static_cast<char>(c));
+                }
+            }
+            return out;
         }
 
         // Trim leading + trailing whitespace and CR.
@@ -218,22 +242,55 @@ namespace io {
             return out;
         }
 
-        // Find a column index by primary name plus optional aliases (all case-insensitive).
+        // ---------------------------------------------------------------------
+        //  Header lookup (case-insensitive + normalized fallback)
+        // ---------------------------------------------------------------------
+
+        // Find a column index by primary name plus optional aliases (all case-insensitive),
+        // with a normalized fallback that ignores punctuation (for things like PM2.5 / PM_25).
         std::optional<std::size_t> find_column_index(
             const std::string& primary,
             std::initializer_list<std::string> aliases = {}) const
         {
-            auto key = to_lower(primary);
-            auto it = header_index_.find(key);
-            if (it != header_index_.end()) {
-                return it->second;
+            // 1) Try direct lower-cased matches first (fast path).
+            auto try_direct = [&](const std::string& key) -> std::optional<std::size_t> {
+                auto it = header_index_.find(to_lower(key));
+                if (it != header_index_.end()) {
+                    return it->second;
+                }
+                return std::nullopt;
+                };
+
+            if (auto direct = try_direct(primary)) {
+                return direct;
             }
             for (const auto& alt : aliases) {
-                auto it2 = header_index_.find(to_lower(alt));
-                if (it2 != header_index_.end()) {
-                    return it2->second;
+                if (auto direct_alt = try_direct(alt)) {
+                    return direct_alt;
                 }
             }
+
+            // 2) Normalized fallback: ignore punctuation/underscores/etc.
+            const auto target_norm = normalize_key(primary);
+            if (!target_norm.empty()) {
+                for (const auto& [name, idx] : header_index_) {
+                    if (normalize_key(name) == target_norm) {
+                        return idx;
+                    }
+                }
+            }
+
+            // Also try normalized aliases, if any.
+            for (const auto& alt : aliases) {
+                const auto alt_norm = normalize_key(alt);
+                if (alt_norm.empty()) continue;
+                for (const auto& [name, idx] : header_index_) {
+                    if (normalize_key(name) == alt_norm) {
+                        return idx;
+                    }
+                }
+            }
+
             return std::nullopt;
         }
 
@@ -259,6 +316,10 @@ namespace io {
             }
             return get_string_by_index(cols, *idx);
         }
+
+        // ---------------------------------------------------------------------
+        //  Zone + numeric parsing
+        // ---------------------------------------------------------------------
 
         int zone_id_for(const std::string& zone) {
             auto it = zone_map_.find(zone);
