@@ -24,6 +24,8 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     std::vector<model::SensorRecord> dummy(3);
     agg.consume(dummy);
 
+
+
     auto s = agg.summary();
     REQUIRE(s.total_count >= 1);
 }

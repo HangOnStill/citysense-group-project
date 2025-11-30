@@ -53,22 +53,23 @@ namespace io {
                     // default-construct to a well-defined value.
                     rec.ts = std::chrono::system_clock::time_point{};
 
-                    // sensor_id (string, case-insensitive header)
-                    if (auto s = get_string(cols, "sensor_id")) {
+                    // sensor_id (string, case-insensitive header, with alias "sensor")
+                    if (auto s = get_string(cols, "sensor_id", { "sensor" })) {
                         rec.sensor_id = *s;
-                    } else {
+                    }
+                    else {
                         rec.sensor_id.clear();
                     }
 
-                    // zone_id (stable small integer per zone string)
+                    // zone_id (string or code, header can be "zone_id" or "zone")
                     rec.zone_id = get_zone(cols, "zone_id");
 
                     // family-specific numeric fields (optional)
                     rec.speed = parse_double(cols, "speed");
-                    rec.flow  = parse_double(cols, "flow");
-                    rec.pm25  = parse_double(cols, "pm25");
-                    rec.pm10  = parse_double(cols, "pm10");
-                    rec.db    = parse_double(cols, "db");
+                    rec.flow = parse_double(cols, "flow");
+                    rec.pm25 = parse_double(cols, "pm25");
+                    rec.pm10 = parse_double(cols, "pm10");
+                    rec.db = parse_double(cols, "db");
 
                     batch.push_back(std::move(rec));
                 }
@@ -85,29 +86,25 @@ namespace io {
             }
         }
 
+        std::size_t malformed_count() const noexcept { return malformed_count_; }
+
     private:
         std::vector<std::string> inputs_;
-        std::size_t current_index_{0};
+        std::size_t current_index_{ 0 };
         std::ifstream current_;
-        bool any_file_opened_{false};
-        
+        bool any_file_opened_{ false };
 
         // Lower-cased column name -> column index
         std::unordered_map<std::string, std::size_t> header_index_;
 
         // Zone string -> stable small int id
         std::unordered_map<std::string, int> zone_map_;
-        int next_zone_id_{1};
-
+        int next_zone_id_{ 1 };
 
         std::size_t malformed_count_{ 0 };
-    public:
-        std::size_t malformed_count() const noexcept { return malformed_count_; }
 
         // Open current file (or next) and read header.
         // Returns true if a stream is open and ready, false if exhausted.
-        // Open current file (or next) and read header.
-// Returns true if a stream is open and ready, false if exhausted.
         bool ensure_stream() {
             using std::string;
 
@@ -170,7 +167,6 @@ namespace io {
             return current_.is_open();
         }
 
-
         void parse_header(const std::string& line) {
             header_index_.clear();
             auto cols = split(line);
@@ -193,13 +189,13 @@ namespace io {
             // leading
             std::size_t start = 0;
             while (start < s.size() &&
-                   (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
+                (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
                 ++start;
             }
             // trailing
             std::size_t end = s.size();
             while (end > start &&
-                   (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
+                (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
                 --end;
             }
             return s.substr(start, end - start);
@@ -213,12 +209,55 @@ namespace io {
                 if (ch == ',') {
                     out.push_back(trim(cur));
                     cur.clear();
-                } else {
+                }
+                else {
                     cur.push_back(ch);
                 }
             }
             out.push_back(trim(cur));
             return out;
+        }
+
+        // Find a column index by primary name plus optional aliases (all case-insensitive).
+        std::optional<std::size_t> find_column_index(
+            const std::string& primary,
+            std::initializer_list<std::string> aliases = {}) const
+        {
+            auto key = to_lower(primary);
+            auto it = header_index_.find(key);
+            if (it != header_index_.end()) {
+                return it->second;
+            }
+            for (const auto& alt : aliases) {
+                auto it2 = header_index_.find(to_lower(alt));
+                if (it2 != header_index_.end()) {
+                    return it2->second;
+                }
+            }
+            return std::nullopt;
+        }
+
+        std::optional<std::string> get_string_by_index(
+            const std::vector<std::string>& cols,
+            std::size_t idx) const
+        {
+            if (idx >= cols.size()) return std::nullopt;
+            auto val = trim(cols[idx]);
+            if (val.empty()) return std::nullopt;
+            return val;
+        }
+
+        // Helper: fetch a string column by (case-insensitive) name + aliases.
+        std::optional<std::string> get_string(
+            const std::vector<std::string>& cols,
+            const std::string& name,
+            std::initializer_list<std::string> aliases = {}) const
+        {
+            auto idx = find_column_index(name, aliases);
+            if (!idx) {
+                return std::nullopt;
+            }
+            return get_string_by_index(cols, *idx);
         }
 
         int zone_id_for(const std::string& zone) {
@@ -231,46 +270,29 @@ namespace io {
             return id;
         }
 
-        // Helper: fetch a string column by (case-insensitive) name.
-        std::optional<std::string> get_string(
-            const std::vector<std::string>& cols,
-            const std::string& name) const
-        {
-            auto key = to_lower(name);
-            auto it  = header_index_.find(key);
-            if (it == header_index_.end()) return std::nullopt;
-            std::size_t idx = it->second;
-            if (idx >= cols.size()) return std::nullopt;
-
-            auto val = trim(cols[idx]);
-            if (val.empty()) return std::nullopt;
-            return val;
-        }
-
         // Helper: fetch / map zone_id; returns 0 if column missing or empty.
         int get_zone(const std::vector<std::string>& cols,
-                     const std::string& name)
+            const std::string& name)
         {
-            auto opt = get_string(cols, name);
+            // Accept "zone_id" or "zone" (any case).
+            auto opt = get_string(cols, name, { "zone" });
             if (!opt) {
                 return 0;
             }
             return zone_id_for(*opt);
         }
 
-		// Helper: parse a double column by (case-insensitive) name.
+        // Helper: parse a double column by (case-insensitive) name.
         std::optional<double> parse_double(
             const std::vector<std::string>& cols,
             const std::string& name) const
         {
-            auto key = to_lower(name);
-            auto it  = header_index_.find(key);
-            if (it == header_index_.end()) return std::nullopt;
+            auto idx = find_column_index(name);
+            if (!idx) return std::nullopt;
 
-            std::size_t idx = it->second;
-            if (idx >= cols.size()) return std::nullopt;
+            if (*idx >= cols.size()) return std::nullopt;
 
-            auto s = trim(cols[idx]);
+            auto s = trim(cols[*idx]);
             if (s.empty()) return std::nullopt;
 
             try {
