@@ -9,7 +9,17 @@
 #include "sim/Criteria.hpp"
 #include "sim/SeededRNG.hpp"
 #include "sim/Clock.hpp"
-#include "core/Aggregator.hpp"
+
+
+#include "core/Aggregator.hpp"      
+#include "core/Window.hpp"          
+#include "core/Finding.hpp"         
+
+#include "detectors/AirAlert.hpp"         
+#include "detectors/NoiseSpike.hpp"        
+#include "detectors/TrafficCongestion.hpp"  
+
+
 
 int main(int argc, char** argv) {
     app::Options opt;
@@ -21,11 +31,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    // Aggregator now has a default window size; you can override if you want, e.g. Aggregator agg{5};
-    core::Aggregator agg(1);
-
-
-
+    // 1-minute time window (you can tune this if needed)
+    core::Aggregator agg{ 10 };
     if (opt.reserve_rows > 0) {
         agg.reserve(opt.reserve_rows);
     }
@@ -62,10 +69,9 @@ int main(int argc, char** argv) {
     if (opt.from) {
         start = *opt.from;
     } else {
-        // fallback default start: now
         start = system_clock::now();
     }
-    int step_seconds = 60;  // you already use 60 in Simulator
+    int step_seconds = 60;
     sim::Clock clock{ start, step_seconds };
 
     sim::SeededRNG rng{ opt.sim_seed };
@@ -82,24 +88,44 @@ int main(int argc, char** argv) {
             sim::print_month_summary(month_data_aggregated);
         }
     }else{
-        // 1. Determine simulation start time
         sim.start(sim::SimulatorProfile::Weekday);
 
-        // 4. Compute end time using --hours
         system_clock::time_point end = start + hours(opt.sim_hours);
 
-        // 5. Simulation loop (will stop correctly now)
+        detectors::AirAlert air_detector{ 35.0 };
+        detectors::NoiseSpike noise_detector{ 85.0, 10, 10 };
+        detectors::TrafficCongestion traffic_detector{ 25.0, 3 };
+
+        std::vector<core::Detector*> dets = {
+            &air_detector,
+            &noise_detector,
+            &traffic_detector
+        };
+
         while (clock.now() < end) {
             auto batch = sim.next_batch(static_cast<int>(opt.batch_size));
+
             for (auto& rec : batch)
                 accept_record(rec);
-        }       
+
+            const core::Window& win = agg.current_window_view();
+
+            for (auto* det : dets) {
+                auto findings = det->detect(win);
+                for (const auto& f : findings) {
+                    std::cout << "[" << f.detector << "] "
+                            << "value=" << f.value
+                            << "  window=" << f.start_ts.time_since_epoch().count()
+                            << " → "       << f.end_ts.time_since_epoch().count()
+                            << "\n";
+                }
+            }
+}       
     }
     
 }
-    // Obtain summary for Role B exporters.
     auto sum = agg.summary();
-    (void)sum; // avoid unused-variable warning until exporters are wired
+    (void)sum;
 
     return 0;
 }
