@@ -51,9 +51,7 @@ namespace io {
                     }
 
                     model::SensorRecord rec{};
-                    // CSV does not carry a timestamp in this project;
-                    // default-construct to a well-defined value.
-                    rec.ts = std::chrono::system_clock::time_point{};
+                    rec.ts = std::chrono::system_clock::time_point{}; // no timestamp in CSV
 
                     // sensor_id (string, case-insensitive header, with alias "sensor")
                     if (auto s = get_string(cols, "sensor_id", { "sensor" })) {
@@ -109,8 +107,6 @@ namespace io {
         //  File handling + header parsing
         // ---------------------------------------------------------------------
 
-        // Open current file (or next) and read header.
-        // Returns true if a stream is open and ready, false if exhausted.
         bool ensure_stream() {
             using std::string;
 
@@ -186,7 +182,6 @@ namespace io {
         //  String utilities
         // ---------------------------------------------------------------------
 
-        // Lowercase helper
         static std::string to_lower(std::string s) {
             std::transform(
                 s.begin(), s.end(), s.begin(),
@@ -195,7 +190,6 @@ namespace io {
         }
 
         // Normalize a header key: lower-case, keep only [a-z0-9].
-        // This makes "PM2.5", "pm_25", "pm2_5", "PM-2.5" all normalize to "pm25".
         static std::string normalize_key(std::string s) {
             s = to_lower(std::move(s));
             std::string out;
@@ -208,15 +202,12 @@ namespace io {
             return out;
         }
 
-        // Trim leading + trailing whitespace and CR.
         static std::string trim(std::string s) {
-            // leading
             std::size_t start = 0;
             while (start < s.size() &&
                 (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
                 ++start;
             }
-            // trailing
             std::size_t end = s.size();
             while (end > start &&
                 (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
@@ -225,7 +216,6 @@ namespace io {
             return s.substr(start, end - start);
         }
 
-        // Very small CSV splitter (no quoting support; OK for provided data).
         std::vector<std::string> split(const std::string& line) const {
             std::vector<std::string> out;
             std::string cur;
@@ -243,16 +233,13 @@ namespace io {
         }
 
         // ---------------------------------------------------------------------
-        //  Header lookup (case-insensitive + normalized fallback)
+        //  Header lookup (case-insensitive + normalized substring fallback)
         // ---------------------------------------------------------------------
 
-        // Find a column index by primary name plus optional aliases (all case-insensitive),
-        // with a normalized fallback that ignores punctuation (for things like PM2.5 / PM_25).
         std::optional<std::size_t> find_column_index(
             const std::string& primary,
             std::initializer_list<std::string> aliases = {}) const
         {
-            // 1) Try direct lower-cased matches first (fast path).
             auto try_direct = [&](const std::string& key) -> std::optional<std::size_t> {
                 auto it = header_index_.find(to_lower(key));
                 if (it != header_index_.end()) {
@@ -261,6 +248,7 @@ namespace io {
                 return std::nullopt;
                 };
 
+            // 1) Direct case-insensitive name
             if (auto direct = try_direct(primary)) {
                 return direct;
             }
@@ -270,22 +258,34 @@ namespace io {
                 }
             }
 
-            // 2) Normalized fallback: ignore punctuation/underscores/etc.
+            // 2) Normalized fallback with substring / suffix matching.
             const auto target_norm = normalize_key(primary);
+
+            auto try_normalized_match = [&](const std::string& key_norm) -> bool {
+                if (key_norm == target_norm) return true;
+                if (!target_norm.empty()) {
+                    // header contains "pm25" (e.g., "pm25ugm3")
+                    if (key_norm.find(target_norm) != std::string::npos) return true;
+                }
+                return false;
+                };
+
             if (!target_norm.empty()) {
                 for (const auto& [name, idx] : header_index_) {
-                    if (normalize_key(name) == target_norm) {
+                    auto key_norm = normalize_key(name);
+                    if (try_normalized_match(key_norm)) {
                         return idx;
                     }
                 }
             }
 
-            // Also try normalized aliases, if any.
             for (const auto& alt : aliases) {
                 const auto alt_norm = normalize_key(alt);
                 if (alt_norm.empty()) continue;
                 for (const auto& [name, idx] : header_index_) {
-                    if (normalize_key(name) == alt_norm) {
+                    auto key_norm = normalize_key(name);
+                    if (key_norm == alt_norm ||
+                        key_norm.find(alt_norm) != std::string::npos) {
                         return idx;
                     }
                 }
@@ -304,16 +304,13 @@ namespace io {
             return val;
         }
 
-        // Helper: fetch a string column by (case-insensitive) name + aliases.
         std::optional<std::string> get_string(
             const std::vector<std::string>& cols,
             const std::string& name,
             std::initializer_list<std::string> aliases = {}) const
         {
             auto idx = find_column_index(name, aliases);
-            if (!idx) {
-                return std::nullopt;
-            }
+            if (!idx) return std::nullopt;
             return get_string_by_index(cols, *idx);
         }
 
@@ -331,7 +328,6 @@ namespace io {
             return id;
         }
 
-        // Helper: fetch / map zone_id; returns 0 if column missing or empty.
         int get_zone(const std::vector<std::string>& cols,
             const std::string& name)
         {
@@ -343,14 +339,12 @@ namespace io {
             return zone_id_for(*opt);
         }
 
-        // Helper: parse a double column by (case-insensitive) name.
         std::optional<double> parse_double(
             const std::vector<std::string>& cols,
             const std::string& name) const
         {
             auto idx = find_column_index(name);
             if (!idx) return std::nullopt;
-
             if (*idx >= cols.size()) return std::nullopt;
 
             auto s = trim(cols[*idx]);
@@ -360,7 +354,6 @@ namespace io {
                 std::size_t pos = 0;
                 double v = std::stod(s, &pos);
                 if (pos == 0) {
-                    // nothing parsed at all → malformed numeric field
                     return std::nullopt;
                 }
                 return v;
