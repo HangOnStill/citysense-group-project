@@ -82,6 +82,9 @@ if (CITYSENSE_ENABLE_STRICT_TESTS)
     tests_strict/test_exceptions.cpp
   )
   target_link_libraries(citysense_tests_strict PRIVATE citysense_lib Catch2::Catch2WithMain)
+
+  target_compile_definitions(citysense_tests_strict PRIVATE TEST_DATA_DIR="${CMAKE_SOURCE_DIR}/data")
+
   apply_warnings(citysense_tests_strict)
   if (UNIX AND NOT APPLE)
     target_link_libraries(citysense_tests_strict PRIVATE pthread)
