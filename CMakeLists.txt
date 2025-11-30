@@ -51,6 +51,8 @@ FetchContent_MakeAvailable(Catch2)
 
 enable_testing()
 
+file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test-results)
+
 # Public tests (fast, smoke)
 add_executable(citysense_tests
   tests/test_build.cpp
