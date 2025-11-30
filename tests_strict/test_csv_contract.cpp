@@ -18,18 +18,18 @@ TEST_CASE("CSV reader parses header case-insensitively and returns records") {
 
 TEST_CASE("CSV reader supports required columns per family") {
     // air: timestamp,sensor_id,zone_id,pm25,pm10
-    io::ReaderCSV air({ "data/air.csv" });
+    io::ReaderCSV air({ TEST_DATA_DIR "/air.csv" });
     auto a = air.next_batch(10);
     REQUIRE(a.size() >= 1);
 
     // noise: timestamp,sensor_id,zone_id,db
-    io::ReaderCSV noise({ "data/noise.csv" });
+    io::ReaderCSV noise({ TEST_DATA_DIR "/noise.csv" });
     auto n = noise.next_batch(10);
     REQUIRE(n.size() >= 1);
     REQUIRE(n.front().db.has_value());
 
     // traffic: timestamp,sensor_id,zone_id,speed,flow
-    io::ReaderCSV traffic({ "data/traffic.csv" });
+    io::ReaderCSV traffic({ TEST_DATA_DIR "/traffic.csv" });
     auto t = traffic.next_batch(10);
     REQUIRE(t.size() >= 1);
     REQUIRE(t.front().speed.has_value());
