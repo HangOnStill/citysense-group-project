@@ -20,7 +20,7 @@ namespace sim {
 #endif
         }
 
-        // Helper: hour of day (0–23) from system_clock::time_point
+        // Helper: hour of day (0â€“23) from system_clock::time_point
         inline int hour_of_day(std::chrono::system_clock::time_point ts) {
             using namespace std::chrono;
             auto secs = duration_cast<seconds>(ts.time_since_epoch()).count();
@@ -34,7 +34,7 @@ namespace sim {
     // ctor / basic control
     // ------------------------------------------------------------------
 
-    Simulator::Simulator(Clock clock, SeededRNG rng)
+    Simulator::Simulator(Clock& clock, SeededRNG rng)
         : clock_(clock),
         rng_(rng),
         last_pm25_glebe_(20.0),
@@ -376,7 +376,7 @@ namespace sim {
             double rush_slowdown_min = -10.0;
             double rush_slowdown_max = 10.0;
 
-            // Morning rush 7–9
+            // Morning rush 7â€“9
             if (hour >= 7 && hour <= 9) {
                 switch (zone_id) {
                 case 1: rush_slowdown_min = -25.0; rush_slowdown_max = -12.0; break;
@@ -384,7 +384,7 @@ namespace sim {
                 case 3: rush_slowdown_min = -17.0; rush_slowdown_max = -8.0;  break;
                 }
             }
-            // Evening rush 16–18
+            // Evening rush 16â€“18
             else if (hour >= 16 && hour <= 18) {
                 switch (zone_id) {
                 case 1: rush_slowdown_min = -25.0; rush_slowdown_max = -12.0; break;
