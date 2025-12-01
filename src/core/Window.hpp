@@ -1,14 +1,17 @@
 #pragma once
+
 #include <vector>
+#include <chrono>
 #include "../model/SensorRecord.hpp"
 
 namespace core {
 
-// Very small window container. Students should implement time-based eviction.
-struct Window {
-    std::vector<model::SensorRecord> records;
+    // Very small window container. Students should implement time-based eviction.
+    struct Window {
+        std::vector<model::SensorRecord> records;
 
-    std::chrono::system_clock::time_point time_start{};
-};
+        // Timestamp of first record in the current window (optional, but useful).
+        std::chrono::system_clock::time_point time_start{};
+    };
 
 } // namespace core

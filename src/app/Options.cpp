@@ -2,11 +2,21 @@
 #include <stdexcept>
 #include <iostream>
 #include <ctime>
+#include <chrono>
+#include <cstdlib> // for std::exit
 
 namespace {
 
+    inline std::time_t timegm_utc(std::tm* tm) {
+#if defined(_WIN32)
+        return _mkgmtime(tm);
+#else
+        return timegm(tm);
+#endif
+    }
+
     std::chrono::system_clock::time_point parse_time(const std::string& s) {
-        // Very small parser: "YYYY-MM-DDTHH:MM" in UTC, e.g. 2024-01-01T08:00
+        // Very small parser: "YYYY-MM-DDTHH:MM" in UTC
         std::tm tm{};
         if (s.size() != 16 || s[10] != 'T')
             throw std::runtime_error("Bad time format (expected YYYY-MM-DDTHH:MM): " + s);
@@ -18,7 +28,7 @@ namespace {
         tm.tm_min = std::stoi(s.substr(14, 2));
         tm.tm_sec = 0;
 
-        std::time_t tt = timegm(&tm);
+        std::time_t tt = timegm_utc(&tm);
         return std::chrono::system_clock::from_time_t(tt);
     }
 
@@ -36,12 +46,13 @@ namespace {
             "  -h, --help          show this help\n";
     }
 
-} // namespace
+} // anonymous namespace
 
 namespace app {
 
     Options parse_args(int argc, char** argv) {
         Options opt;
+
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
 
@@ -74,10 +85,12 @@ namespace app {
                 else throw std::runtime_error("Unknown --mode: " + v);
             }
             else if (arg == "--batch") {
-                opt.batch_size = static_cast<std::size_t>(std::stoul(need_value("--batch")));
+                opt.batch_size = static_cast<std::size_t>(
+                    std::stoul(need_value("--batch")));
             }
             else if (arg == "--reserve") {
-                opt.reserve_rows = static_cast<std::size_t>(std::stoul(need_value("--reserve")));
+                opt.reserve_rows = static_cast<std::size_t>(
+                    std::stoul(need_value("--reserve")));
             }
             else if (arg == "--seed") {
                 opt.sim_seed = std::stoi(need_value("--seed"));
@@ -90,7 +103,6 @@ namespace app {
                 throw std::runtime_error("Unknown argument: " + arg);
             }
         }
-
         return opt;
     }
 

@@ -1,8 +1,13 @@
 // tests/test_parallel_ingest.cpp
 #include <catch2/catch_test_macros.hpp>
+#include <algorithm>
+#include <vector>
+#include <string>
+
 #include "io/ReaderCSV.hpp"
 #include "parallel/ZoneWorkers.hpp"
-#include "agg/Aggregator.hpp"
+#include "core/Aggregator.hpp"
+#include "model/SensorRecord.hpp"
 
 TEST_CASE("parallel ingestion matches serial") {
     std::vector<std::string> files = { "data/sample.csv" };
@@ -19,28 +24,33 @@ TEST_CASE("parallel ingestion matches serial") {
     }
 
     // Serial
-    agg::Aggregator serialAgg;
+    core::Aggregator serialAgg{ 0 };
     for (auto& r : records) serialAgg.consume(r);
-    auto serialSummary = serialAgg.finalize();
+    auto serialSummary = serialAgg.summary();
 
-    // Parallel per zone
-    std::vector<int> zones; // fill from data if you like; or hardcode
+    // Zones present in the data
+    std::vector<int> zones;
+    zones.reserve(records.size());
     for (auto& r : records) zones.push_back(r.zone_id);
     std::sort(zones.begin(), zones.end());
     zones.erase(std::unique(zones.begin(), zones.end()), zones.end());
 
+    // Parallel per zone
     parallel::ZoneIngestor par{ zones };
     par.start_workers();
     for (auto& r : records) par.ingest(r);
     auto perZoneSummaries = par.finish();
 
-    // Recombine per-zone summaries into a "combined" one however makes sense
-    // For now assume Aggregator has merge(Summary).
-    agg::Aggregator merged;
+    // Recombine per-zone summaries
+    core::Summary parallelSummary;
+    parallelSummary.total_count = 0;
     for (auto& z : perZoneSummaries) {
-        merged.merge(z.summary);
+        parallelSummary.total_count += z.summary.total_count;
+        for (auto& [zone, count] : z.summary.by_zone) {
+            parallelSummary.by_zone[zone] += count;
+        }
     }
-    auto parallelSummary = merged.finalize();
 
-    REQUIRE(parallelSummary == serialSummary); // define == or compare key fields
+    REQUIRE(parallelSummary.total_count == serialSummary.total_count);
+    REQUIRE(parallelSummary.by_zone == serialSummary.by_zone);
 }

@@ -1,39 +1,54 @@
 #pragma once
+#include <vector>
+#include <unordered_map>
+#include <string>
+
 #include "../core/Detector.hpp"
 #include "../core/Window.hpp"
 #include "../core/Finding.hpp"
 
 namespace detectors {
 
-class AirAlert : public core::Detector {
-    double pm25_thr_;
-public:
-    explicit AirAlert(double pm25_thr) : pm25_thr_(pm25_thr) {}
+    class AirAlert : public core::Detector {
+        double pm25_thr_;
 
-    std::vector<core::Finding> detect(const core::Window& w) override {
-        // TODO: rolling mean PM2.5 above threshold.
-        //(void)pm25_thr_;
-        std::vector<core::Finding> findings;
-        double numerator = 0.0;
-        int denominator = 0;
+    public:
+        explicit AirAlert(double pm25_thr) : pm25_thr_(pm25_thr) {}
 
-        for (const auto& rec : w.records) {
-            if (rec.pm25.has_value()) { numerator += rec.pm25.value(); denominator++; }
+        std::vector<core::Finding> detect(const core::Window& w) override {
+            std::vector<core::Finding> findings;
+            if (w.records.empty()) return findings;
+
+            double sum = 0.0;
+            int    count = 0;
+
+            for (const auto& rec : w.records) {
+                if (rec.pm25.has_value()) {
+                    sum += *rec.pm25;
+                    ++count;
+                }
+            }
+            if (count == 0) return findings;
+
+            const double rolling_mean = sum / static_cast<double>(count);
+            if (rolling_mean > pm25_thr_) {
+                std::unordered_map<std::string, double> thresholds;
+                thresholds["pm25_thr"] = pm25_thr_;
+
+                const auto start = w.records.front().ts;
+                const auto end = w.records.back().ts;
+
+                core::Finding f{
+                    "AirAlert",
+                    rolling_mean,
+                    std::move(thresholds),
+                    start,
+                    end
+                };
+                findings.push_back(std::move(f));
+            }
+            return findings;
         }
-        double rolling_mean = numerator / denominator;
-        
-        if (rolling_mean > pm25_thr_) {
-            std::unordered_map<std::string,double> thresholds;
-            thresholds["pm25_thr"] = pm25_thr_;
-
-            std::chrono::system_clock::time_point start = w.records.front().ts;
-            std::chrono::system_clock::time_point end = w.records.back().ts;
-
-            core::Finding finding{"AirAlert",rolling_mean,thresholds,start,end};
-            findings.push_back(finding);
-        }
-        return findings;
-    }
-};
+    };
 
 } // namespace detectors

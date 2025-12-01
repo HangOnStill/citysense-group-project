@@ -1,4 +1,5 @@
 ﻿#pragma once
+
 #include <string>
 #include <vector>
 #include <fstream>
@@ -8,6 +9,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <initializer_list>
 
 #include "../model/SensorRecord.hpp"
 
@@ -49,26 +51,25 @@ namespace io {
                     }
 
                     model::SensorRecord rec{};
-                    // CSV does not carry a timestamp in this project;
-                    // default-construct to a well-defined value.
-                    rec.ts = std::chrono::system_clock::time_point{};
+                    rec.ts = std::chrono::system_clock::time_point{}; // no timestamp in CSV
 
-                    // sensor_id (string, case-insensitive header)
-                    if (auto s = get_string(cols, "sensor_id")) {
+                    // sensor_id (string, case-insensitive header, with alias "sensor")
+                    if (auto s = get_string(cols, "sensor_id", { "sensor" })) {
                         rec.sensor_id = *s;
-                    } else {
+                    }
+                    else {
                         rec.sensor_id.clear();
                     }
 
-                    // zone_id (stable small integer per zone string)
+                    // zone_id (string or code, header can be "zone_id" or "zone")
                     rec.zone_id = get_zone(cols, "zone_id");
 
-                    // family-specific numeric fields (optional)
+                    // family-specific numeric fields (optional, header-insensitive)
                     rec.speed = parse_double(cols, "speed");
-                    rec.flow  = parse_double(cols, "flow");
-                    rec.pm25  = parse_double(cols, "pm25");
-                    rec.pm10  = parse_double(cols, "pm10");
-                    rec.db    = parse_double(cols, "db");
+                    rec.flow = parse_double(cols, "flow");
+                    rec.pm25 = parse_double(cols, "pm25");
+                    rec.pm10 = parse_double(cols, "pm10");
+                    rec.db = parse_double(cols, "db");
 
                     batch.push_back(std::move(rec));
                 }
@@ -85,29 +86,27 @@ namespace io {
             }
         }
 
+        std::size_t malformed_count() const noexcept { return malformed_count_; }
+
     private:
         std::vector<std::string> inputs_;
-        std::size_t current_index_{0};
+        std::size_t current_index_{ 0 };
         std::ifstream current_;
-        bool any_file_opened_{false};
-        
+        bool any_file_opened_{ false };
 
         // Lower-cased column name -> column index
         std::unordered_map<std::string, std::size_t> header_index_;
 
         // Zone string -> stable small int id
         std::unordered_map<std::string, int> zone_map_;
-        int next_zone_id_{1};
-
+        int next_zone_id_{ 1 };
 
         std::size_t malformed_count_{ 0 };
-    public:
-        std::size_t malformed_count() const noexcept { return malformed_count_; }
 
-        // Open current file (or next) and read header.
-        // Returns true if a stream is open and ready, false if exhausted.
-        // Open current file (or next) and read header.
-// Returns true if a stream is open and ready, false if exhausted.
+        // ---------------------------------------------------------------------
+        //  File handling + header parsing
+        // ---------------------------------------------------------------------
+
         bool ensure_stream() {
             using std::string;
 
@@ -126,10 +125,16 @@ namespace io {
 
                 // Try a few reasonable candidate paths.
                 std::vector<string> candidates;
-                candidates.push_back(raw);                      // as passed
-                candidates.push_back("../" + raw);              // from build/ up one
-                candidates.push_back("data/" + filename);       // data/filename
-                candidates.push_back("../data/" + filename);    // ../data/filename
+                // As passed (may already be absolute or relative to source/build root)
+                candidates.push_back(raw);
+                // One level up
+                candidates.push_back("../" + raw);
+                // Two levels up (important for ctest working dir: build/debug)
+                candidates.push_back("../../" + raw);
+                // Common project layouts for data/ at repo root
+                candidates.push_back("data/" + filename);
+                candidates.push_back("../data/" + filename);
+                candidates.push_back("../../data/" + filename);
 
                 bool opened = false;
                 for (const auto& path : candidates) {
@@ -180,7 +185,10 @@ namespace io {
             }
         }
 
-        // Lowercase helper
+        // ---------------------------------------------------------------------
+        //  String utilities
+        // ---------------------------------------------------------------------
+
         static std::string to_lower(std::string s) {
             std::transform(
                 s.begin(), s.end(), s.begin(),
@@ -188,24 +196,33 @@ namespace io {
             return s;
         }
 
-        // Trim leading + trailing whitespace and CR.
+        // Normalize a header key: lower-case, keep only [a-z0-9].
+        static std::string normalize_key(std::string s) {
+            s = to_lower(std::move(s));
+            std::string out;
+            out.reserve(s.size());
+            for (unsigned char c : s) {
+                if (std::isalnum(c)) {
+                    out.push_back(static_cast<char>(c));
+                }
+            }
+            return out;
+        }
+
         static std::string trim(std::string s) {
-            // leading
             std::size_t start = 0;
             while (start < s.size() &&
-                   (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
+                (s[start] == ' ' || s[start] == '\t' || s[start] == '\r')) {
                 ++start;
             }
-            // trailing
             std::size_t end = s.size();
             while (end > start &&
-                   (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
+                (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\r')) {
                 --end;
             }
             return s.substr(start, end - start);
         }
 
-        // Very small CSV splitter (no quoting support; OK for provided data).
         std::vector<std::string> split(const std::string& line) const {
             std::vector<std::string> out;
             std::string cur;
@@ -213,13 +230,100 @@ namespace io {
                 if (ch == ',') {
                     out.push_back(trim(cur));
                     cur.clear();
-                } else {
+                }
+                else {
                     cur.push_back(ch);
                 }
             }
             out.push_back(trim(cur));
             return out;
         }
+
+        // ---------------------------------------------------------------------
+        //  Header lookup (case-insensitive + normalized substring fallback)
+        // ---------------------------------------------------------------------
+
+        std::optional<std::size_t> find_column_index(
+            const std::string& primary,
+            std::initializer_list<std::string> aliases = {}) const
+        {
+            auto try_direct = [&](const std::string& key) -> std::optional<std::size_t> {
+                auto it = header_index_.find(to_lower(key));
+                if (it != header_index_.end()) {
+                    return it->second;
+                }
+                return std::nullopt;
+                };
+
+            // 1) Direct case-insensitive name
+            if (auto direct = try_direct(primary)) {
+                return direct;
+            }
+            for (const auto& alt : aliases) {
+                if (auto direct_alt = try_direct(alt)) {
+                    return direct_alt;
+                }
+            }
+
+            // 2) Normalized fallback with substring / suffix matching.
+            const auto target_norm = normalize_key(primary);
+
+            auto try_normalized_match = [&](const std::string& key_norm) -> bool {
+                if (key_norm == target_norm) return true;
+                if (!target_norm.empty()) {
+                    // header contains "pm25" (e.g., "pm25ugm3")
+                    if (key_norm.find(target_norm) != std::string::npos) return true;
+                }
+                return false;
+                };
+
+            if (!target_norm.empty()) {
+                for (const auto& [name, idx] : header_index_) {
+                    auto key_norm = normalize_key(name);
+                    if (try_normalized_match(key_norm)) {
+                        return idx;
+                    }
+                }
+            }
+
+            for (const auto& alt : aliases) {
+                const auto alt_norm = normalize_key(alt);
+                if (alt_norm.empty()) continue;
+                for (const auto& [name, idx] : header_index_) {
+                    auto key_norm = normalize_key(name);
+                    if (key_norm == alt_norm ||
+                        key_norm.find(alt_norm) != std::string::npos) {
+                        return idx;
+                    }
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        std::optional<std::string> get_string_by_index(
+            const std::vector<std::string>& cols,
+            std::size_t idx) const
+        {
+            if (idx >= cols.size()) return std::nullopt;
+            auto val = trim(cols[idx]);
+            if (val.empty()) return std::nullopt;
+            return val;
+        }
+
+        std::optional<std::string> get_string(
+            const std::vector<std::string>& cols,
+            const std::string& name,
+            std::initializer_list<std::string> aliases = {}) const
+        {
+            auto idx = find_column_index(name, aliases);
+            if (!idx) return std::nullopt;
+            return get_string_by_index(cols, *idx);
+        }
+
+        // ---------------------------------------------------------------------
+        //  Zone + numeric parsing
+        // ---------------------------------------------------------------------
 
         int zone_id_for(const std::string& zone) {
             auto it = zone_map_.find(zone);
@@ -231,53 +335,32 @@ namespace io {
             return id;
         }
 
-        // Helper: fetch a string column by (case-insensitive) name.
-        std::optional<std::string> get_string(
-            const std::vector<std::string>& cols,
-            const std::string& name) const
-        {
-            auto key = to_lower(name);
-            auto it  = header_index_.find(key);
-            if (it == header_index_.end()) return std::nullopt;
-            std::size_t idx = it->second;
-            if (idx >= cols.size()) return std::nullopt;
-
-            auto val = trim(cols[idx]);
-            if (val.empty()) return std::nullopt;
-            return val;
-        }
-
-        // Helper: fetch / map zone_id; returns 0 if column missing or empty.
         int get_zone(const std::vector<std::string>& cols,
-                     const std::string& name)
+            const std::string& name)
         {
-            auto opt = get_string(cols, name);
+            // Accept "zone_id" or "zone" (any case).
+            auto opt = get_string(cols, name, { "zone" });
             if (!opt) {
                 return 0;
             }
             return zone_id_for(*opt);
         }
 
-		// Helper: parse a double column by (case-insensitive) name.
         std::optional<double> parse_double(
             const std::vector<std::string>& cols,
             const std::string& name) const
         {
-            auto key = to_lower(name);
-            auto it  = header_index_.find(key);
-            if (it == header_index_.end()) return std::nullopt;
+            auto idx = find_column_index(name);
+            if (!idx) return std::nullopt;
+            if (*idx >= cols.size()) return std::nullopt;
 
-            std::size_t idx = it->second;
-            if (idx >= cols.size()) return std::nullopt;
-
-            auto s = trim(cols[idx]);
+            auto s = trim(cols[*idx]);
             if (s.empty()) return std::nullopt;
 
             try {
                 std::size_t pos = 0;
                 double v = std::stod(s, &pos);
                 if (pos == 0) {
-                    // nothing parsed at all → malformed numeric field
                     return std::nullopt;
                 }
                 return v;
