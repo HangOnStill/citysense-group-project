@@ -1,3 +1,4 @@
+// src/tests/test_api_shapes.cpp
 #include <catch2/catch_test_macros.hpp>
 #include <vector>
 
@@ -9,8 +10,9 @@
 #include "io/ReaderCSV.hpp"
 
 struct DummyDetector : core::Detector {
-    void detect(const core::Window&) override {
-        // no-op
+    std::vector<core::Finding> detect(const core::Window&) override {
+        // no-op detector: returns an empty finding list
+        return {};
     }
 };
 
@@ -19,8 +21,9 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     core::Window w;
     DummyDetector d;
 
-    // Just ensure the method exists and is callable
-    d.detect(w);
+    // Ensure the method exists and is callable
+    auto findings = d.detect(w);
+    (void)findings;
 
     // Minimal consume/summary exercise using SensorRecord,
     // matching the Aggregator::consume Range-style contract.
