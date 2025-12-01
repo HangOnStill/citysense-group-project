@@ -1,0 +1,23 @@
+cd C:\LAB\citysense-group-13-Luca-version\citysense-merge\build\release
+
+:: 1) Show tests
+ctest -C Release
+:: explain public vs strict, point to all green
+
+:: 2) Show simulator behaviour
+cd Release
+test_simulator.exe
+:: "These are monthly flags from sim replay; same detectors as main app."
+
+:: 3) Show synthetic aggregator demo
+demo_aggregator.exe
+:: "This is a tiny 4-row example; per-zone counts + stats."
+
+:: 4) Show main pipeline on real data
+citysense.exe ^
+  --input ..\..\data\sensors_small.csv ^
+  --zone 1 ^
+  --mode csv ^
+  --batch 1000 ^
+  --reserve 5000
+:: “Here we read CSV, aggregate in 5-min windows, run detectors, and export console + JSON.”

@@ -1,36 +1,43 @@
+// dev/test_simulator.cpp
 #include <iostream>
 #include <chrono>
-#include <cassert>
 
 #include "sim/Simulator.hpp"
 #include "sim/SimulatorProfile.hpp"
 #include "sim/PatternAnalytics.hpp"
 #include "sim/Criteria.hpp"
 
-
 using namespace std::chrono;
 
-int main(){
-system_clock::time_point start{seconds{0}};
-    sim::Clock clock{start, 60};
-    sim::SeededRNG rng{1234};
-    sim::Simulator sim{clock, rng};
-    auto profile = sim::SimulatorProfile::Weekday;
-    sim::Criteria criteria;
+int main() {
+    std::cout << "=== Simulator pattern analytics demo ===\n\n";
 
+    system_clock::time_point start{ seconds{0} };
+    sim::Clock      clock{ start, 60 };      // 60-second timestep
+    sim::SeededRNG  rng{ 1234 };            // fixed seed for determinism
+    sim::Simulator  sim{ clock, rng };
+    auto            profile = sim::SimulatorProfile::Weekday;
+    sim::Criteria   criteria;               // default thresholds
+
+    // 1. Full-year generation + analytics summary
     auto year_data = sim.generate_year(profile);
     auto year_data_aggregated = sim::analyse_year(year_data, criteria);
     sim::print_year_summary(year_data_aggregated);
 
-    auto month_data = sim.generate_month(profile, 1);
-        sim::write_csv_files(year_data,
-                             "./data/traffic_data.csv",
-                             "./data/air_data.csv",
-                             "./data/noise_data.csv");
+    // 2. Example: January-only analytics + CSV export for inspection
+    auto month_data = sim.generate_month(profile, 1); // 1 = January
+    sim::write_csv_files(
+        year_data,                 // or month_data, depending on what you want
+        "./data/traffic_data.csv",
+        "./data/air_data.csv",
+        "./data/noise_data.csv"
+    );
     auto month_data_aggregated = sim::analyse_month(month_data, criteria);
     sim::print_month_summary(month_data_aggregated);
 
+    return 0;
 }
+
 
 /*
 void print_record(const model::SensorRecord& rec)

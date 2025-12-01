@@ -135,13 +135,21 @@ if (CITYSENSE_ENABLE_DEV_TOOLS)
   target_link_libraries(demo_aggregator PRIVATE citysense_lib)
   apply_warnings(demo_aggregator)
 
-  # New: full ReaderJSON config + trim demo
-  add_executable(test_readerjson_full dev/test_readerjson_full.cpp)
-  target_link_libraries(test_readerjson_full PRIVATE citysense_lib)
-  apply_warnings(test_readerjson_full)
+  # NOTE: We DO NOT build test_readerjson_full / test_readerjson_trim here,
+  # because the official ReaderJSON API in src/io/ReaderJSON.hpp is an NDJSON
+  # sensor reader (next_batch-based), not a config parser with read_file/trim.
 
-  # New: minimal ReaderJSON file + trim demo
-  add_executable(test_readerjson_trim dev/test_readerjson_trim.cpp)
-  target_link_libraries(test_readerjson_trim PRIVATE citysense_lib)
-  apply_warnings(test_readerjson_trim)
+  add_executable(demo_simulator
+    	dev/demo_simulator.cpp
+    	src/sim/Simulator.cpp
+    	src/sim/PatternAnalytics.cpp
+  )
+  target_link_libraries(demo_simulator PRIVATE citysense_lib)
+  apply_warnings(demo_simulator)
+
+  add_executable(demo_detectors dev/demo_detectors.cpp)
+  target_link_libraries(demo_detectors PRIVATE citysense_lib)  # or whatever main lib target you use
+ apply_warnings(demo_detectors)  
+
+	
 endif()

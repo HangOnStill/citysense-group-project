@@ -1,6 +1,7 @@
-// src/tests/test_api_shapes.cpp
+// tests/test_api_shapes.cpp
 #include <catch2/catch_test_macros.hpp>
 #include <vector>
+#include <string>
 
 #include "core/Aggregator.hpp"
 #include "core/Window.hpp"
@@ -9,21 +10,24 @@
 #include "model/SensorRecord.hpp"
 #include "io/ReaderCSV.hpp"
 
+// Simple no-op detector implementation to exercise the Detector API.
 struct DummyDetector : core::Detector {
     std::vector<core::Finding> detect(const core::Window&) override {
-        // no-op detector: returns an empty finding list
         return {};
     }
 };
 
 TEST_CASE("Public API surfaces exist (types, methods)") {
-    core::Aggregator agg(5);
-    core::Window w;
-    DummyDetector d;
+    // Aggregator should be constructible with a window size (e.g. 5 minutes)
+    core::Aggregator agg{ 5 };
 
-    // Ensure the method exists and is callable
+    // Window type must be default-constructible
+    core::Window w;
+
+    // Detector base must be subclassable and callable
+    DummyDetector d;
     auto findings = d.detect(w);
-    (void)findings;
+    (void)findings; // silence unused warning
 
     // Minimal consume/summary exercise using SensorRecord,
     // matching the Aggregator::consume Range-style contract.
@@ -33,7 +37,18 @@ TEST_CASE("Public API surfaces exist (types, methods)") {
     REQUIRE(s.total_count >= 1);
 
     // Ensure ReaderCSV is constructible and can read something from air.csv
-    io::ReaderCSV reader({ "data/air.csv" });
-    auto batch = reader.next_batch(10);
-    REQUIRE(batch.size() >= 1);
+    // TEST_DATA_DIR is defined for this target in CMakeLists.txt.
+    #ifdef TEST_DATA_DIR
+        std::string air_path = std::string(TEST_DATA_DIR) + "/air.csv";
+    #else
+        std::string air_path = "data/air.csv"; // fallback, should not happen in CI
+    #endif
+
+        io::ReaderCSV reader({ air_path });
+        auto batch = reader.next_batch(10);
+
+        // We only care that it does *something* and does not throw.
+        REQUIRE(batch.size() >= 1);
+
 }
+
