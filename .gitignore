@@ -33,3 +33,6 @@ Thumbs.db
 
 # Runtime output (your app writes this)
 citysense_report.json
+
+# Executables (Windows, misc)
+*.exe

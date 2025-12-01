@@ -126,3 +126,22 @@ if (CITYSENSE_ENABLE_STRICT_TESTS)
     PROPERTIES LABELS "strict"
   )
 endif()
+
+option(CITYSENSE_ENABLE_DEV_TOOLS "Build local dev/demo executables" OFF)
+
+if (CITYSENSE_ENABLE_DEV_TOOLS)
+  # Existing demo executable
+  add_executable(demo_aggregator dev/demo_aggregator.cpp)
+  target_link_libraries(demo_aggregator PRIVATE citysense_lib)
+  apply_warnings(demo_aggregator)
+
+  # New: full ReaderJSON config + trim demo
+  add_executable(test_readerjson_full dev/test_readerjson_full.cpp)
+  target_link_libraries(test_readerjson_full PRIVATE citysense_lib)
+  apply_warnings(test_readerjson_full)
+
+  # New: minimal ReaderJSON file + trim demo
+  add_executable(test_readerjson_trim dev/test_readerjson_trim.cpp)
+  target_link_libraries(test_readerjson_trim PRIVATE citysense_lib)
+  apply_warnings(test_readerjson_trim)
+endif()
