@@ -12,7 +12,7 @@
 #include <initializer_list>
 
 #include "../model/SensorRecord.hpp"
-
+using namespace std;
 namespace io {
 
     // Streaming CSV reader over one or more input files.
@@ -371,4 +371,4 @@ namespace io {
         }
     };
 
-} // namespace io
+}  // namespace io

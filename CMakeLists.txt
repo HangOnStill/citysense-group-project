@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 option(CITYSENSE_WARN_AS_ERR "Treat warnings as errors for project sources" ON)
 option(CITYSENSE_ENABLE_STRICT_TESTS "Build and run strict (grading) tests" ON)
 
+# -------------------------------------------------------------------
 # Header-only convenience "library" to share include paths
+# -------------------------------------------------------------------
 add_library(citysense_lib INTERFACE)
 target_include_directories(citysense_lib INTERFACE
     ${PROJECT_SOURCE_DIR}/src
@@ -29,13 +31,14 @@ function(apply_warnings target)
   endif()
 endfunction()
 
-# ---- Main app ---------------------------------------------------------
-
+# -------------------------------------------------------------------
+# Main app
+# -------------------------------------------------------------------
 add_executable(citysense
     src/app/main.cpp
     src/app/Options.cpp          # defines app::parse_args
     src/sim/Simulator.cpp        # defines sim::Simulator
-    src/sim/PatternAnalytics.cpp # pattern analytics
+    src/sim/PatternAnalytics.cpp # pattern analytics helpers
 )
 target_link_libraries(citysense PRIVATE citysense_lib)
 apply_warnings(citysense)
@@ -44,8 +47,9 @@ if (UNIX AND NOT APPLE)
   target_link_libraries(citysense PRIVATE pthread)
 endif()
 
-# ---- Standalone simulator test app -----------------------------------
-
+# -------------------------------------------------------------------
+# Standalone simulator test app (optional)
+# -------------------------------------------------------------------
 add_executable(test_simulator
     tests/test_simulator.cpp
     src/sim/Simulator.cpp
@@ -58,21 +62,26 @@ if (UNIX AND NOT APPLE)
   target_link_libraries(test_simulator PRIVATE pthread)
 endif()
 
-# ---- Tests (Catch2) --------------------------------------------------
-
+# -------------------------------------------------------------------
+# Tests (Catch2)
+# -------------------------------------------------------------------
 include(FetchContent)
+
 FetchContent_Declare(
   Catch2
   URL https://github.com/catchorg/Catch2/archive/refs/tags/v3.6.0.zip
 )
 FetchContent_MakeAvailable(Catch2)
 
+include(CTest)
+include(Catch)
+
 enable_testing()
 
 # Ensure directory for JUnit XML exists (CTest + CI)
 file(MAKE_DIRECTORY ${CMAKE_BINARY_DIR}/test-results)
 
-# Public tests (fast, smoke)
+# ----------------- Public tests -----------------
 add_executable(citysense_tests
   tests/test_build.cpp
   tests/test_aggregation.cpp
@@ -86,9 +95,6 @@ if (UNIX AND NOT APPLE)
   target_link_libraries(citysense_tests PRIVATE pthread)
 endif()
 
-include(CTest)
-include(Catch)
-
 catch_discover_tests(citysense_tests
   TEST_PREFIX "public::"
   REPORTER junit
@@ -96,7 +102,7 @@ catch_discover_tests(citysense_tests
   OUTPUT_PREFIX "public-"
 )
 
-# Strict tests (grading)
+# ----------------- Strict tests (grading) -----------------
 if (CITYSENSE_ENABLE_STRICT_TESTS)
   add_executable(citysense_tests_strict
     tests_strict/test_csv_contract.cpp

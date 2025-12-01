@@ -1,19 +1,35 @@
-# Build directories
+# ----------------------------
+# Build & IDE Artifacts
+# ----------------------------
+
+# Visual Studio workspace folder (CAUSES permission denied errors)
+.vs/
+
+# CMake build directories
+build/
+out/
 /build/
 /out/
 /cmake-build-*/
 /CMakeFiles/
 /CMakeCache.txt
 
-# IDE files
-.vs/
+# VS Code, IntelliJ, CLion, etc.
+.vscode/
 .idea/
 *.code-workspace
+
+# User-specific files
 *.user
 *.suo
 *.VC.db
 *.VC.opendb
+*.log
+*.cache
 
 # OS junk
 .DS_Store
 Thumbs.db
+
+# Runtime output (your app writes this)
+citysense_report.json

@@ -1,9 +1,7 @@
 #pragma once
 
 #include <unordered_map>
-#include <map>
 #include <mutex>
-#include <type_traits>
 #include <iterator>
 #include <vector>
 #include <array>
@@ -32,16 +30,17 @@ namespace core {
         MetricSummary pm25;   // air
         MetricSummary pm10;   // air
         MetricSummary db;     // noise
-        // No operator== needed for assignment tests
     };
 
     // Public summary contract
     struct Summary {
-        int total_count{ 0 };                             // all ingested rows (any type)
-        std::unordered_map<int, int> by_zone;          // zone_id -> count (current window only)
+        // All ingested rows (any type, over lifetime)
+        int total_count{ 0 };
 
-        // richer view: per-zone metrics for the current window
-        // (kept for CLI/visualization, not used in equality in tests)
+        // Per-zone counts in the *current window*
+        std::unordered_map<int, int> by_zone;
+
+        // Rich per-zone metrics for the current window
         std::unordered_map<int, ZoneMetrics> metrics_by_zone;
     };
 
@@ -62,8 +61,9 @@ namespace core {
         void consume(const Range& r) {
             using std::begin;
             using std::end;
+
             auto first = begin(r);
-            auto last = end(r);
+            auto last  = end(r);
             if (first == last) return;
 
             using Value = std::decay_t<decltype(*first)>;
@@ -74,6 +74,7 @@ namespace core {
             if constexpr (std::is_same_v<Value, model::SensorRecord>) {
                 append_records_unlocked(first, last);
             }
+
             // For any type (including ints used in tests) we still bump total_count.
             total_count_ += static_cast<int>(std::distance(first, last));
         }
@@ -138,13 +139,13 @@ namespace core {
         Summary summary() const {
             std::scoped_lock lock(mutex_);
             Summary s;
-            s.total_count = total_count_;
-            s.by_zone = by_zone_;
-            s.metrics_by_zone = metrics_by_zone_;
+            s.total_count      = total_count_;
+            s.by_zone          = by_zone_;
+            s.metrics_by_zone  = metrics_by_zone_;
             return s;
         }
 
-        // Alias for your parallel ingest tests
+        // Alias for your parallel ingest tests (if any still call finalize)
         Summary finalize() const {
             return summary();
         }
@@ -166,7 +167,9 @@ namespace core {
             // Time-based eviction: keep only last window_minutes_ worth of data
             if (!window_.records.empty() && window_minutes_ > 0) {
                 const auto max_ts = window_.records.back().ts;
-                const auto cutoff = max_ts - std::chrono::minutes(window_minutes_);
+                const auto cutoff =
+                    max_ts - std::chrono::minutes(window_minutes_);
+
                 auto erase_it = std::remove_if(
                     window_.records.begin(),
                     window_.records.end(),
@@ -219,9 +222,9 @@ namespace core {
         Window window_;
         int    window_minutes_{ 0 };
 
-        int total_count_{ 0 };                            // all ingested rows
-        std::unordered_map<int, int> by_zone_;           // per-zone counts (current window)
-        std::unordered_map<int, ZoneMetrics> metrics_by_zone_; // per-zone metrics
+        int total_count_{ 0 };  // all ingested rows (lifetime)
+        std::unordered_map<int, int> by_zone_;               // per-zone counts in window
+        std::unordered_map<int, ZoneMetrics> metrics_by_zone_; // per-zone metrics in window
 
         mutable std::mutex mutex_;
     };
